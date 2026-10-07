@@ -1,0 +1,41 @@
+msgid ""
+msgstr ""
+"Language: sw\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "For rent"
+msgstr "Ya kupangisha"
+
+msgid "For sale"
+msgstr "Ya kuuzwa"
+
+msgid "One-time sale price"
+msgstr "Bei ya mauzo ya mara moja"
+
+msgid "Per day"
+msgstr "Kwa siku"
+
+msgid "Per week"
+msgstr "Kwa wiki"
+
+msgid "Per month"
+msgstr "Kwa mwezi"
+
+msgid "Per three months"
+msgstr "Kwa miezi mitatu"
+
+msgid "Per six months"
+msgstr "Kwa miezi sita"
+
+msgid "Per year"
+msgstr "Kwa mwaka"
+
+msgid "No agent fee"
+msgstr "Hakuna ada ya wakala"
+
+msgid "Fixed amount"
+msgstr "Kiasi maalum"
+
+msgid "Percentage of price"
+msgstr "Asilimia ya bei"
