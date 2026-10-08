@@ -1,4 +1,5 @@
 from django.contrib.auth.models import Permission
+from django.conf import settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -7,6 +8,9 @@ from .models import Role, User
 
 class AuthenticationApiTests(APITestCase):
     password = "StrongPass!234"
+
+    def setUp(self):
+        self.client.credentials(HTTP_X_API_KEY=settings.API_KEY)
 
     def test_register_login_and_view_profile(self):
         response = self.client.post("/api/auth/register/", {
@@ -20,7 +24,10 @@ class AuthenticationApiTests(APITestCase):
         response = self.client.post("/api/auth/login/", {"username": "jane", "password": self.password})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {response.data['access']}")
+        self.client.credentials(
+            HTTP_X_API_KEY=settings.API_KEY,
+            HTTP_AUTHORIZATION=f"Bearer {response.data['access']}",
+        )
         profile = self.client.get("/api/auth/me/")
         self.assertEqual(profile.status_code, status.HTTP_200_OK)
         self.assertEqual(profile.data["email"], "jane@example.com")
@@ -40,6 +47,7 @@ class AuthenticationApiTests(APITestCase):
 
 class UserManagementApiTests(APITestCase):
     def setUp(self):
+        self.client.credentials(HTTP_X_API_KEY=settings.API_KEY)
         self.admin = User.objects.create_superuser("admin", "admin@example.com", "StrongPass!234")
         self.client.force_authenticate(self.admin)
 

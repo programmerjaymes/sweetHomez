@@ -44,6 +44,10 @@ DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 
 ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if host.strip()]
 
+API_KEY = os.getenv("API_KEY", "")
+if not API_KEY:
+    raise RuntimeError("API_KEY must be configured in the environment or .env file.")
+
 
 # Application definition
 
@@ -64,6 +68,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'sweet_homez.middleware.RequireAPIKeyMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'houses.middleware.QueryParameterLocaleMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -185,6 +190,19 @@ SPECTACULAR_SETTINGS = {
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
     },
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'ApiKeyAuth': {
+                'type': 'apiKey',
+                'in': 'header',
+                'name': 'X-API-Key',
+            },
+        },
+    },
+    'POSTPROCESSING_HOOKS': [
+        'drf_spectacular.hooks.postprocess_schema_enums',
+        'sweet_homez.schema.require_api_key',
+    ],
 }
 
 SIMPLE_JWT = {

@@ -11,19 +11,19 @@ lookups_schema = extend_schema_view(
 )
 
 
-class PublicLookupViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [permissions.AllowAny]
+class AuthenticatedLookupViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 
 
 @lookups_schema
-class LookupCategoryViewSet(PublicLookupViewSet):
+class LookupCategoryViewSet(AuthenticatedLookupViewSet):
     serializer_class = LookupCategorySerializer
     queryset = LookupCategory.objects.filter(is_active=True).prefetch_related("values")
 
 
 @lookups_schema
-class LookupValueViewSet(PublicLookupViewSet):
+class LookupValueViewSet(AuthenticatedLookupViewSet):
     serializer_class = LookupValueSerializer
 
     def get_queryset(self):
@@ -33,13 +33,13 @@ class LookupValueViewSet(PublicLookupViewSet):
 
 
 @lookups_schema
-class RegionViewSet(PublicLookupViewSet):
+class RegionViewSet(AuthenticatedLookupViewSet):
     serializer_class = RegionSerializer
     queryset = Region.objects.filter(is_active=True)
 
 
 @lookups_schema
-class DistrictViewSet(PublicLookupViewSet):
+class DistrictViewSet(AuthenticatedLookupViewSet):
     serializer_class = DistrictSerializer
 
     def get_queryset(self):
@@ -49,7 +49,7 @@ class DistrictViewSet(PublicLookupViewSet):
 
 
 @lookups_schema
-class WardViewSet(PublicLookupViewSet):
+class WardViewSet(AuthenticatedLookupViewSet):
     serializer_class = WardSerializer
 
     def get_queryset(self):
@@ -59,7 +59,7 @@ class WardViewSet(PublicLookupViewSet):
 
 
 @lookups_schema
-class LocalityViewSet(PublicLookupViewSet):
+class LocalityViewSet(AuthenticatedLookupViewSet):
     serializer_class = LocalitySerializer
 
     def get_queryset(self):

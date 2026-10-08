@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -9,9 +10,11 @@ from users.models import Role, User
 
 class PublicHouseApiTests(APITestCase):
     def setUp(self):
+        self.client.credentials(HTTP_X_API_KEY=settings.API_KEY)
         role, _ = Role.objects.get_or_create(name="Agent")
         self.agent = User.objects.create_user("agent", "agent@example.com", "StrongPass!234")
         self.agent.roles.add(role)
+        self.viewer = User.objects.create_user("viewer", "viewer@example.com", "StrongPass!234")
         self.rental = House.objects.create(
             agent=self.agent,
             title="City apartment",
@@ -50,12 +53,14 @@ class PublicHouseApiTests(APITestCase):
             address="Masaki",
         )
 
-    def test_anonymous_user_can_list_available_houses(self):
+    def test_authenticated_user_can_list_available_houses(self):
+        self.client.force_authenticate(self.viewer)
         response = self.client.get("/api/houses/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 2)
 
-    def test_anonymous_user_can_view_house_details(self):
+    def test_authenticated_user_can_view_house_details(self):
+        self.client.force_authenticate(self.viewer)
         response = self.client.get(f"/api/houses/{self.rental.pk}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["listing_type"], "rent")
@@ -63,12 +68,14 @@ class PublicHouseApiTests(APITestCase):
         self.assertEqual(response.data["agent"]["username"], "agent")
 
     def test_list_can_filter_by_type_and_rooms(self):
+        self.client.force_authenticate(self.viewer)
         response = self.client.get("/api/houses/?listing_type=rent&rooms=2")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["id"], self.rental.pk)
 
     def test_query_parameter_returns_swahili_translation(self):
+        self.client.force_authenticate(self.viewer)
         response = self.client.get(f"/api/houses/{self.rental.pk}/?lang=sw")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["language"], "sw")
@@ -78,6 +85,16 @@ class PublicHouseApiTests(APITestCase):
     def test_anonymous_user_cannot_create_house(self):
         response = self.client.post("/api/houses/", {})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_anonymous_user_cannot_list_houses(self):
+        response = self.client.get("/api/houses/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_request_without_api_key_is_rejected(self):
+        self.client.credentials()
+        response = self.client.get("/api/houses/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["detail"], "A valid X-API-Key header is required.")
 
     def test_agent_can_create_owned_house(self):
         self.client.force_authenticate(self.agent)

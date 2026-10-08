@@ -35,23 +35,24 @@ Never commit `.env`. Copy `.env.example` when configuring another environment.
 | CRUD | `/api/users/` | Staff/admin |
 | CRUD | `/api/roles/` | Staff/admin |
 | GET | `/api/permissions/` | Staff/admin |
-| GET | `/api/houses/` | Public |
-| GET | `/api/houses/{id}/` | Public |
+| GET | `/api/houses/` | Authenticated |
+| GET | `/api/houses/{id}/` | Authenticated |
 | POST/PATCH/DELETE | `/api/houses/` | Agent owner/admin |
-| GET | `/api/house-media/` | Public |
+| GET | `/api/house-media/` | Authenticated |
 | POST/PATCH/DELETE | `/api/house-media/` | Agent owner/admin |
-| GET | `/api/nearby-facilities/` | Public |
+| GET | `/api/nearby-facilities/` | Authenticated |
 | POST/PATCH/DELETE | `/api/nearby-facilities/` | Agent owner/admin |
-| GET | `/api/house-translations/` | Public |
+| GET | `/api/house-translations/` | Authenticated |
 | POST/PATCH/DELETE | `/api/house-translations/` | Agent owner/admin |
-| GET | `/api/lookup-categories/` | Public |
-| GET | `/api/lookup-values/?category=listing_type` | Public |
-| GET | `/api/regions/` | Public |
-| GET | `/api/districts/?region={id}` | Public |
-| GET | `/api/wards/?district={id}` | Public |
-| GET | `/api/localities/?ward={id}&type=street` | Public |
+| GET | `/api/lookup-categories/` | Authenticated |
+| GET | `/api/lookup-values/?category=listing_type` | Authenticated |
+| GET | `/api/regions/` | Authenticated |
+| GET | `/api/districts/?region={id}` | Authenticated |
+| GET | `/api/wards/?district={id}` | Authenticated |
+| GET | `/api/localities/?ward={id}&type=street` | Authenticated |
 
-Send access tokens as `Authorization: Bearer <access-token>`. Public registration
+Every `/api/` request requires `X-API-Key: <your-api-key>`. Authenticated user
+operations additionally require `Authorization: Bearer <access-token>`. Registration
 intentionally cannot assign roles or staff status; an administrator assigns those
 through the user and role endpoints.
 

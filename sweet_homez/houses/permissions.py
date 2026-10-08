@@ -8,7 +8,7 @@ def is_agent(user):
 class IsAgentOwnerOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
-            return True
+            return request.user.is_authenticated
         return is_agent(request.user)
 
     def has_object_permission(self, request, view, obj):
