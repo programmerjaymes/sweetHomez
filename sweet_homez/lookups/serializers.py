@@ -45,16 +45,22 @@ class DistrictSerializer(LocalizedModelSerializer):
 
 class WardSerializer(LocalizedModelSerializer):
     district_name = serializers.CharField(source="district.name", read_only=True)
+    region = serializers.IntegerField(source="district.region_id", read_only=True)
+    region_name = serializers.CharField(source="district.region.name", read_only=True)
 
     class Meta:
         model = Ward
-        fields = ["id", "district", "district_name", "code", "name", "name_en", "name_sw", "is_active"]
+        fields = ["id", "district", "district_name", "region", "region_name", "code", "name", "name_en", "name_sw", "is_active"]
 
 
 class LocalitySerializer(LocalizedModelSerializer):
     ward_name = serializers.CharField(source="ward.name", read_only=True)
+    district = serializers.IntegerField(source="ward.district_id", read_only=True)
+    district_name = serializers.CharField(source="ward.district.name", read_only=True)
+    region = serializers.IntegerField(source="ward.district.region_id", read_only=True)
+    region_name = serializers.CharField(source="ward.district.region.name", read_only=True)
     locality_type_code = serializers.CharField(source="locality_type.code", read_only=True)
 
     class Meta:
         model = Locality
-        fields = ["id", "ward", "ward_name", "locality_type", "locality_type_code", "code", "name", "name_en", "name_sw", "postal_code", "latitude", "longitude", "is_active"]
+        fields = ["id", "ward", "ward_name", "district", "district_name", "region", "region_name", "locality_type", "locality_type_code", "code", "name", "name_en", "name_sw", "postal_code", "latitude", "longitude", "is_active"]

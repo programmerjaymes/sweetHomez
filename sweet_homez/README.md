@@ -51,7 +51,8 @@ Never commit `.env`. Copy `.env.example` when configuring another environment.
 | GET | `/api/wards/?district={id}` | Authenticated |
 | GET | `/api/localities/?ward={id}&type=street` | Authenticated |
 
-Every `/api/` request requires `X-API-Key: <your-api-key>`. Authenticated user
+Every `/api/` request requires `X-API-Key: <your-api-key>`. House list/detail
+reads do not require a user login. Authenticated user
 operations additionally require `Authorization: Bearer <access-token>`. Registration
 intentionally cannot assign roles or staff status; an administrator assigns those
 through the user and role endpoints.

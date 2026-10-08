@@ -53,7 +53,7 @@ class WardViewSet(AuthenticatedLookupViewSet):
     serializer_class = WardSerializer
 
     def get_queryset(self):
-        queryset = Ward.objects.filter(is_active=True).select_related("district")
+        queryset = Ward.objects.filter(is_active=True).select_related("district", "district__region")
         district = self.request.query_params.get("district")
         return queryset.filter(district_id=district) if district and district.isdigit() else queryset
 
@@ -63,7 +63,9 @@ class LocalityViewSet(AuthenticatedLookupViewSet):
     serializer_class = LocalitySerializer
 
     def get_queryset(self):
-        queryset = Locality.objects.filter(is_active=True).select_related("ward", "locality_type")
+        queryset = Locality.objects.filter(is_active=True).select_related(
+            "ward", "ward__district", "ward__district__region", "locality_type"
+        )
         ward = self.request.query_params.get("ward")
         locality_type = self.request.query_params.get("type")
         if ward and ward.isdigit():

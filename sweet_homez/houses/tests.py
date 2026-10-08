@@ -67,6 +67,18 @@ class PublicHouseApiTests(APITestCase):
         self.assertEqual(response.data["rooms"], 2)
         self.assertEqual(response.data["agent"]["username"], "agent")
 
+    def test_public_user_can_list_and_view_available_houses_without_login(self):
+        self.client.force_authenticate(user=None)
+        self.client.credentials(HTTP_X_API_KEY=settings.API_KEY)
+
+        listing = self.client.get("/api/houses/")
+        self.assertEqual(listing.status_code, status.HTTP_200_OK)
+        self.assertEqual(listing.data["count"], 2)
+
+        detail = self.client.get(f"/api/houses/{self.rental.pk}/")
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["id"], self.rental.pk)
+
     def test_list_can_filter_by_type_and_rooms(self):
         self.client.force_authenticate(self.viewer)
         response = self.client.get("/api/houses/?listing_type=rent&rooms=2")
@@ -86,11 +98,7 @@ class PublicHouseApiTests(APITestCase):
         response = self.client.post("/api/houses/", {})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_anonymous_user_cannot_list_houses(self):
-        response = self.client.get("/api/houses/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_request_without_api_key_is_rejected(self):
+    def test_house_read_without_api_key_is_rejected(self):
         self.client.credentials()
         response = self.client.get("/api/houses/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
