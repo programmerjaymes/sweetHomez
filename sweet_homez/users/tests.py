@@ -66,6 +66,15 @@ class AuthenticationApiTests(APITestCase):
         self.assertTrue(profile.coverage_wards.filter(pk=ward.pk).exists())
         self.assertTrue(profile.user.roles.filter(name="Agent").exists())
 
+    def test_documentation_can_load_schema_before_api_key_authorization(self):
+        self.client.credentials()
+        docs = self.client.get("/docs/")
+        public_schema = self.client.get("/schema/")
+        protected_schema = self.client.get("/api/schema/")
+        self.assertEqual(docs.status_code, status.HTTP_200_OK)
+        self.assertEqual(public_schema.status_code, status.HTTP_200_OK)
+        self.assertEqual(protected_schema.status_code, status.HTTP_401_UNAUTHORIZED)
+
 
 class UserManagementApiTests(APITestCase):
     def setUp(self):

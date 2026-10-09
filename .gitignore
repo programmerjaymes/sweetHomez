@@ -2,5 +2,7 @@
 venv/
 .venv/
 env/
+sweethomez/
+sweetHomez/
 __pycache__/
 *.pyc

@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.views.generic import TemplateView
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -52,7 +52,11 @@ def get_conversation_for_request(request, conversation_id):
 class ChatView(APIView):
     permission_classes = [permissions.AllowAny]
 
-    @extend_schema(request=ChatRequestSerializer, responses={200: ChatResponseSerializer})
+    @extend_schema(
+        tags=["AI Assistant"],
+        request=ChatRequestSerializer,
+        responses={200: ChatResponseSerializer},
+    )
     def post(self, request):
         serializer = ChatRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -144,18 +148,20 @@ class ChatView(APIView):
 class ConversationDetailView(APIView):
     permission_classes = [permissions.AllowAny]
 
-    @extend_schema(responses={200: SearchConversationSerializer})
+    @extend_schema(tags=["AI Assistant"], responses={200: SearchConversationSerializer})
     def get(self, request, conversation_id):
         conversation = get_conversation_for_request(request, conversation_id)
         return Response(SearchConversationSerializer(conversation).data)
 
 
+@extend_schema_view(post=extend_schema(tags=["AI Assistant"]))
 class InquiryCreateView(generics.CreateAPIView):
     queryset = Inquiry.objects.all()
     serializer_class = InquirySerializer
     permission_classes = [permissions.AllowAny]
 
 
+@extend_schema_view(post=extend_schema(tags=["AI Assistant"]))
 class ViewingRequestCreateView(generics.CreateAPIView):
     queryset = ViewingRequest.objects.all()
     serializer_class = ViewingRequestSerializer

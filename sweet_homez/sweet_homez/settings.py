@@ -152,6 +152,7 @@ INSTALLED_APPS = [
     "users",
     "houses",
     "lookups",
+    "assistant.apps.AssistantConfig",
 ]
 
 
@@ -442,6 +443,14 @@ DEFAULT_FROM_EMAIL = os.getenv(
     "DEFAULT_FROM_EMAIL",
     "noreply@sweethomestz.com"
 )
+
+
+# ============================================================
+# SWEET HOMEZ AI ASSISTANT
+# ============================================================
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
 
 
 # ============================================================
