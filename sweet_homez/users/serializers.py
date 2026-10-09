@@ -3,7 +3,9 @@ from django.contrib.auth.password_validation import validate_password as django_
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import Role, User
+from lookups.models import District, Locality, Region, Ward
+
+from .models import AgentProfile, Role, User
 
 
 class PermissionSerializer(serializers.ModelSerializer):
@@ -87,13 +89,80 @@ class RegisterSerializer(serializers.ModelSerializer):
         if attrs["password"] != attrs.pop("password_confirm"):
             raise serializers.ValidationError({"password_confirm": "Passwords do not match."})
         try:
-            django_validate_password(attrs["password"], user=User(**{key: value for key, value in attrs.items() if key != "password"}))
+            user_data = {
+                key: attrs[key]
+                for key in ("username", "email", "first_name", "last_name")
+                if key in attrs
+            }
+            django_validate_password(attrs["password"], user=User(**user_data))
         except DjangoValidationError as exc:
             raise serializers.ValidationError({"password": list(exc.messages)}) from exc
         return attrs
 
     def create(self, validated_data):
         return User.objects.create_user(**validated_data)
+
+
+class AgentProfileSerializer(serializers.ModelSerializer):
+    coverage_regions = serializers.PrimaryKeyRelatedField(
+        queryset=Region.objects.filter(is_active=True), many=True, required=False
+    )
+    coverage_districts = serializers.PrimaryKeyRelatedField(
+        queryset=District.objects.filter(is_active=True), many=True, required=False
+    )
+    coverage_wards = serializers.PrimaryKeyRelatedField(
+        queryset=Ward.objects.filter(is_active=True), many=True, required=False
+    )
+    coverage_localities = serializers.PrimaryKeyRelatedField(
+        queryset=Locality.objects.filter(is_active=True), many=True, required=False
+    )
+
+    class Meta:
+        model = AgentProfile
+        fields = [
+            "agency_name", "phone_number", "whatsapp_number", "license_number", "bio",
+            "is_verified", "coverage_regions", "coverage_districts", "coverage_wards",
+            "coverage_localities",
+        ]
+        read_only_fields = ["is_verified"]
+
+    def validate(self, attrs):
+        instance = self.instance
+        coverage_fields = (
+            "coverage_regions", "coverage_districts", "coverage_wards", "coverage_localities"
+        )
+        supplied = any(attrs.get(field) for field in coverage_fields)
+        existing = instance and any(getattr(instance, field).exists() for field in coverage_fields)
+        if not supplied and not existing:
+            raise serializers.ValidationError(
+                "Select at least one region, district, ward, or street that you cover."
+            )
+        return attrs
+
+
+class AgentRegisterSerializer(RegisterSerializer):
+    agent_profile = AgentProfileSerializer()
+
+    class Meta(RegisterSerializer.Meta):
+        fields = [*RegisterSerializer.Meta.fields, "agent_profile"]
+
+    def create(self, validated_data):
+        profile_data = validated_data.pop("agent_profile")
+        user = super().create(validated_data)
+        agent_role, _ = Role.objects.get_or_create(
+            name="Agent", defaults={"description": "Can publish and manage property listings"}
+        )
+        user.roles.add(agent_role)
+        many_to_many = {
+            field: profile_data.pop(field, [])
+            for field in (
+                "coverage_regions", "coverage_districts", "coverage_wards", "coverage_localities"
+            )
+        }
+        profile = AgentProfile.objects.create(user=user, **profile_data)
+        for field, values in many_to_many.items():
+            getattr(profile, field).set(values)
+        return user
 
 
 class ChangePasswordSerializer(serializers.Serializer):

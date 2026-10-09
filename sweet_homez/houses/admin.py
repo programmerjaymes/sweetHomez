@@ -20,9 +20,10 @@ class HouseTranslationInline(admin.TabularInline):
 
 @admin.register(House)
 class HouseAdmin(admin.ModelAdmin):
-    list_display = ("title", "agent", "listing_type", "bedrooms", "price", "region", "is_available")
+    list_display = ("title", "agent", "listing_type", "bedrooms", "price", "region", "is_available", "availability_last_confirmed_at")
     list_filter = ("listing_type", "bedrooms", "region", "is_available")
     search_fields = ("title", "description", "address", "ward", "district", "region")
+    autocomplete_fields = ("region_record", "district_record", "ward_record", "street")
     inlines = (HouseTranslationInline, HouseMediaInline, NearbyFacilityInline)
 
 

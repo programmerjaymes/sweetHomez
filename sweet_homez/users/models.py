@@ -2,6 +2,8 @@ from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import Permission
 from django.db import models
 
+from lookups.models import District, Locality, Region, Ward
+
 
 class Role(models.Model):
     name = models.CharField(max_length=150, unique=True)
@@ -34,6 +36,10 @@ class AgentProfile(models.Model):
     license_number = models.CharField(max_length=100, blank=True)
     bio = models.TextField(blank=True)
     is_verified = models.BooleanField(default=False)
+    coverage_regions = models.ManyToManyField(Region, blank=True, related_name="covering_agents")
+    coverage_districts = models.ManyToManyField(District, blank=True, related_name="covering_agents")
+    coverage_wards = models.ManyToManyField(Ward, blank=True, related_name="covering_agents")
+    coverage_localities = models.ManyToManyField(Locality, blank=True, related_name="covering_agents")
 
     def __str__(self):
         return f"Agent profile: {self.user}"

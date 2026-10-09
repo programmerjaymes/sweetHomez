@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sweet Homez AI Assistant</title>
+  <style>
+    :root { color-scheme: light; --green:#176b4d; --cream:#f6f2e8; --ink:#173029; --line:#d8dfd8; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:16px/1.5 system-ui,sans-serif; color:var(--ink); background:linear-gradient(135deg,#e4f2eb,var(--cream)); min-height:100vh; }
+    main { width:min(980px,calc(100% - 28px)); margin:28px auto; display:grid; grid-template-columns:280px 1fr; gap:18px; }
+    .panel { background:#fff; border:1px solid var(--line); border-radius:18px; box-shadow:0 14px 40px #17302914; }
+    aside { padding:22px; align-self:start; }
+    h1 { font-size:24px; margin:0 0 5px; } h2 { font-size:15px; margin:22px 0 8px; }
+    .brand { color:var(--green); font-weight:800; }
+    label { font-size:13px; font-weight:700; display:block; margin:10px 0 5px; }
+    input { width:100%; padding:11px; border:1px solid var(--line); border-radius:10px; }
+    small { display:block; color:#64746d; margin-top:8px; }
+    #requirements { font-size:13px; white-space:pre-wrap; word-break:break-word; background:#f5f7f5; padding:10px; border-radius:10px; }
+    .chat { min-height:78vh; display:flex; flex-direction:column; overflow:hidden; }
+    header { padding:18px 22px; border-bottom:1px solid var(--line); }
+    #messages { flex:1; overflow:auto; padding:22px; max-height:62vh; }
+    .message { max-width:82%; padding:11px 14px; border-radius:15px; margin:0 0 12px; white-space:pre-wrap; }
+    .assistant { background:#edf6f1; border-bottom-left-radius:4px; }
+    .user { background:var(--green); color:#fff; margin-left:auto; border-bottom-right-radius:4px; }
+    #matches { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; margin:8px 0 18px; }
+    #agents { display:grid; gap:10px; margin:8px 0 18px; }
+    .agent { border:1px solid #b9d8c8; border-radius:13px; padding:13px; background:#f4fbf7; }
+    .house { border:1px solid var(--line); border-radius:13px; padding:13px; background:#fff; }
+    .house img { width:100%; height:150px; object-fit:cover; border-radius:9px; margin-bottom:10px; background:#edf1ed; }
+    .house strong,.house span { display:block; } .price { color:var(--green); font-weight:800; margin:5px 0; }
+    .actions { display:flex; gap:7px; margin-top:10px; } .actions a,.actions button { font-size:12px; padding:7px 9px; text-decoration:none; border-radius:8px; }
+    .actions a { color:var(--green); background:#edf6f1; font-weight:800; }
+    form { padding:16px; border-top:1px solid var(--line); display:flex; gap:10px; }
+    form input { flex:1; }
+    button { border:0; background:var(--green); color:#fff; font-weight:800; padding:11px 18px; border-radius:10px; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:wait; }
+    .error { background:#fff0ee; color:#9d2f22; }
+    @media (max-width:720px) { main { grid-template-columns:1fr; margin:14px auto; } aside { order:2; } .chat { min-height:75vh; } }
+  </style>
+</head>
+<body>
+<main>
+  <aside class="panel">
+    <h1><span class="brand">Sweet Homez</span> AI</h1>
+    <p>Test natural-language property discovery.</p>
+    <label for="apiKey">Application API key</label>
+    <input id="apiKey" type="password" autocomplete="off" readonly>
+    <small>Loaded automatically from Django for this local test page.</small>
+    <h2>Current requirements</h2>
+    <div id="requirements">No requirements yet.</div>
+    <button id="reset" type="button" style="margin-top:14px">New conversation</button>
+  </aside>
+  <section class="panel chat">
+    <header><strong>Ask Sweet Homez</strong><br><small>English or Kiswahili</small></header>
+    <div id="messages">
+      <div class="message assistant">Hi! I’m Sweet Homez. Tell me the location, budget, bedrooms, and facilities you need.</div>
+      <div id="matches"></div>
+      <div id="agents"></div>
+    </div>
+    <form id="chatForm">
+      <input id="message" maxlength="2000" required placeholder="e.g. Three bedrooms in Mbezi below TSh 800,000...">
+      <button id="send" type="submit">Send</button>
+    </form>
+  </section>
+</main>
+{{ application_api_key|json_script:"configured-api-key" }}
+<script>
+  const apiKey = document.querySelector('#apiKey');
+  const form = document.querySelector('#chatForm');
+  const input = document.querySelector('#message');
+  const send = document.querySelector('#send');
+  const messages = document.querySelector('#messages');
+  const matches = document.querySelector('#matches');
+  const agents = document.querySelector('#agents');
+  const requirements = document.querySelector('#requirements');
+  const configuredApiKey = JSON.parse(document.querySelector('#configured-api-key').textContent);
+  apiKey.value = configuredApiKey;
+  sessionStorage.removeItem('sweethomezApiKey');
+  let conversationId = localStorage.getItem('sweethomezConversationId');
+
+  function addMessage(text, role, extra='') {
+    const item = document.createElement('div');
+    item.className = `message ${role} ${extra}`;
+    item.textContent = text;
+    messages.insertBefore(item, matches);
+    messages.scrollTop = messages.scrollHeight;
+  }
+  function showMatches(items) {
+    matches.replaceChildren();
+    for (const house of items) {
+      const card = document.createElement('article');
+      card.className = 'house';
+      const media = house.media.find(item => item.media_type === 'image' && item.is_primary)
+        || house.media.find(item => item.media_type === 'image');
+      const imageUrl = media && (media.file_url || media.external_url);
+      if (imageUrl) {
+        const image = document.createElement('img');
+        image.src = imageUrl; image.alt = house.title; image.loading = 'lazy';
+        card.append(image);
+      }
+      const title = document.createElement('strong'); title.textContent = house.title;
+      const price = document.createElement('span'); price.className = 'price';
+      price.textContent = `TSh ${Number(house.price).toLocaleString()} · ${house.price_period_display}`;
+      const location = document.createElement('span'); location.textContent = house.location;
+      const details = document.createElement('small');
+      details.textContent = `${house.bedrooms} bedroom(s) · ${house.parking_spaces} parking · ${house.water_available ? 'water' : 'water not listed'}`;
+      const actions = document.createElement('div'); actions.className = 'actions';
+      const view = document.createElement('a'); view.href = `/api/houses/${house.id}/`; view.target = '_blank'; view.textContent = 'View API';
+      const phone = house.agent.phone_number || house.agent.whatsapp_number;
+      if (phone) { const contact = document.createElement('a'); contact.href = `tel:${phone}`; contact.textContent = 'Contact'; actions.append(contact); }
+      const viewing = document.createElement('button'); viewing.type = 'button'; viewing.textContent = 'Request viewing';
+      viewing.addEventListener('click', () => requestViewing(house)); actions.append(view, viewing);
+      card.append(title, price, location, details, actions); matches.append(card);
+    }
+  }
+  function showAgents(items) {
+    agents.replaceChildren();
+    for (const agent of items) {
+      const card = document.createElement('article'); card.className = 'agent';
+      const name = document.createElement('strong');
+      name.textContent = agent.agency_name || `${agent.first_name} ${agent.last_name}`.trim() || agent.username;
+      const label = document.createElement('small'); label.textContent = 'Verified agent covering your requested area';
+      const actions = document.createElement('div'); actions.className = 'actions';
+      if (agent.phone_number) { const call = document.createElement('a'); call.href = `tel:${agent.phone_number}`; call.textContent = `Call ${agent.phone_number}`; actions.append(call); }
+      if (agent.whatsapp_number) { const wa = document.createElement('a'); wa.href = `https://wa.me/${agent.whatsapp_number.replace(/\D/g,'')}`; wa.target = '_blank'; wa.textContent = 'WhatsApp'; actions.append(wa); }
+      card.append(name, label, actions); agents.append(card);
+    }
+  }
+  function showRequirements(data) {
+    const labels = {
+      listing_type:'Listing type', location:'Location', minimum_price:'Minimum price',
+      maximum_price:'Maximum price', price_period:'Price period', bedrooms:'Bedrooms',
+      minimum_bathrooms:'Minimum bathrooms', minimum_parking_spaces:'Minimum parking',
+      maximum_advance_months:'Maximum advance months', water_required:'Water',
+      electricity_required:'Electricity', security_required:'Security',
+      furnished_required:'Furnished', internet_required:'Internet',
+      nearby_facility:'Nearby facility', maximum_facility_distance_km:'Facility distance (km)'
+    };
+    const entries = Object.entries(data).filter(([,value]) => value !== null && value !== '');
+    requirements.replaceChildren();
+    if (!entries.length) { requirements.textContent = 'No requirements yet.'; return; }
+    for (const [key,value] of entries) {
+      const row = document.createElement('div');
+      row.textContent = `${labels[key] || key}: ${value}`;
+      requirements.append(row);
+    }
+  }
+  async function requestViewing(house) {
+    const customer_name = prompt('Your name'); if (!customer_name) return;
+    const phone_number = prompt('Your phone number'); if (!phone_number) return;
+    const preferred = prompt('Preferred date and time (example: 2026-10-12 10:00)'); if (!preferred) return;
+    try {
+      const response = await fetch('/api/assistant/viewings/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-API-Key':configuredApiKey},
+        body:JSON.stringify({house:house.id,conversation:conversationId || null,customer_name,phone_number,preferred_at:new Date(preferred).toISOString()})
+      });
+      const data = await response.json(); if (!response.ok) throw new Error(JSON.stringify(data));
+      addMessage(`Viewing request sent for ${house.title}. The provider will contact you to confirm.`, 'assistant');
+    } catch (error) { addMessage(`Could not request viewing: ${error.message}`, 'assistant', 'error'); }
+  }
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!configuredApiKey) { addMessage('The Sweet Homez API_KEY is not configured on the server.', 'assistant', 'error'); return; }
+    const text = input.value.trim(); if (!text) return;
+    addMessage(text, 'user'); input.value = ''; send.disabled = true; send.textContent = 'Thinking…';
+    try {
+      const response = await fetch('/api/assistant/chat/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-API-Key':configuredApiKey},
+        body:JSON.stringify({conversation_id:conversationId || null,message:text})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Request failed.');
+      conversationId = data.conversation_id;
+      localStorage.setItem('sweethomezConversationId', conversationId);
+      addMessage(data.message, 'assistant');
+      showRequirements(data.requirements);
+      showMatches(data.matches);
+      showAgents(data.recommended_agents || []);
+    } catch (error) { addMessage(error.message, 'assistant', 'error'); }
+    finally { send.disabled = false; send.textContent = 'Send'; input.focus(); }
+  });
+  document.querySelector('#reset').addEventListener('click', () => {
+    conversationId = null; localStorage.removeItem('sweethomezConversationId');
+    requirements.textContent = 'No requirements yet.'; matches.replaceChildren(); agents.replaceChildren();
+    addMessage('New conversation started. What kind of home are you looking for?', 'assistant');
+  });
+</script>
+</body>
+</html>

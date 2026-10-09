@@ -81,3 +81,26 @@ Load or refresh geographic and property-type lookups with:
 ```bash
 python manage.py seed_lookups
 ```
+
+## Sweet Homez AI assistant
+
+Configure the server-side OpenAI credentials:
+
+```env
+OPENAI_API_KEY=your-project-api-key
+OPENAI_MODEL=gpt-6-luna
+```
+
+Apply migrations, seed the lookup hierarchy first, and start Django:
+
+```bash
+python manage.py migrate
+python manage.py seed_lookups
+python manage.py seed_houses
+python manage.py runserver
+```
+
+Open `http://127.0.0.1:8000/assistant/` for the test chat interface. Enter the
+Sweet Homez `X-API-Key` in that page; never enter the OpenAI key in the browser.
+The chat API is `POST /api/assistant/chat/`. Inquiry and viewing creation are
+available at `/api/assistant/inquiries/` and `/api/assistant/viewings/`.

@@ -8,8 +8,8 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .models import Role, User
-from .serializers import ChangePasswordSerializer, LogoutSerializer, PermissionSerializer, RegisterSerializer, RoleSerializer, UserSerializer
+from .models import AgentProfile, Role, User
+from .serializers import AgentProfileSerializer, AgentRegisterSerializer, ChangePasswordSerializer, LogoutSerializer, PermissionSerializer, RegisterSerializer, RoleSerializer, UserSerializer
 
 
 users_crud_schema = extend_schema_view(
@@ -32,6 +32,25 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = [permissions.AllowAny]
     serializer_class = RegisterSerializer
+
+
+@extend_schema_view(post=extend_schema(tags=["Users"]))
+class AgentRegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    permission_classes = [permissions.AllowAny]
+    serializer_class = AgentRegisterSerializer
+
+
+@extend_schema_view(
+    get=extend_schema(tags=["Users"]),
+    put=extend_schema(tags=["Users"]),
+    patch=extend_schema(tags=["Users"]),
+)
+class CurrentAgentProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = AgentProfileSerializer
+
+    def get_object(self):
+        return AgentProfile.objects.get(user=self.request.user)
 
 
 @extend_schema_view(post=extend_schema(tags=["Users"]))

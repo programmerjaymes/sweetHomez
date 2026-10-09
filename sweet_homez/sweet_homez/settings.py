@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'users',
     'houses',
     'lookups',
+    'assistant',
 ]
 
 MIDDLEWARE = [
@@ -221,3 +222,7 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+# Sweet Homez AI assistant
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")

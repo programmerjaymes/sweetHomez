@@ -7,6 +7,7 @@ from .models import AgentProfile, Role, User
 class AgentProfileInline(admin.StackedInline):
     model = AgentProfile
     extra = 0
+    filter_horizontal = ("coverage_regions", "coverage_districts", "coverage_wards", "coverage_localities")
 
 
 @admin.register(Role)

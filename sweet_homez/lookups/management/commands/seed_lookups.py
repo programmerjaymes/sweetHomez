@@ -13,7 +13,7 @@ LOOKUPS = {
 }
 
 PLACES = [
-    ("DSM", "Dar es Salaam", "Dar es Salaam", [("KIN", "Kinondoni", [("MAS", "Masaki"), ("MBZ", "Mbezi Beach")]), ("UBG", "Ubungo", [("SNZ", "Sinza")]), ("KGM", "Kigamboni", [("KGM-W", "Kigamboni")])]),
+    ("DSM", "Dar es Salaam", "Dar es Salaam", [("KIN", "Kinondoni", [("MAS", "Masaki"), ("MBZ", "Mbezi Beach"), ("OYB", "Oyster Bay")]), ("UBG", "Ubungo", [("SNZ", "Sinza")]), ("KGM", "Kigamboni", [("KGM-W", "Kigamboni")])]),
     ("DOM", "Dodoma", "Dodoma", [("DOD-U", "Dodoma Urban", [("KSS", "Kisasa")])]),
     ("ARU", "Arusha", "Arusha", [("ARU-U", "Arusha Urban", [("NJR", "Njiro")])]),
     ("ZAN-S", "Zanzibar South", "Kusini Unguja", [("KUS", "Kusini", [("PAJ", "Paje")])]),

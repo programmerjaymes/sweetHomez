@@ -4,6 +4,8 @@ from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from lookups.models import District, Locality, Region, Ward
+
 
 class House(models.Model):
     class ListingType(models.TextChoices):
@@ -40,6 +42,18 @@ class House(models.Model):
     district = models.CharField(max_length=100, blank=True)
     region = models.CharField(max_length=100)
     country = models.CharField(max_length=100, default="Tanzania")
+    region_record = models.ForeignKey(
+        Region, on_delete=models.PROTECT, related_name="houses", null=True, blank=True
+    )
+    district_record = models.ForeignKey(
+        District, on_delete=models.PROTECT, related_name="houses", null=True, blank=True
+    )
+    ward_record = models.ForeignKey(
+        Ward, on_delete=models.PROTECT, related_name="houses", null=True, blank=True
+    )
+    street = models.ForeignKey(
+        Locality, on_delete=models.PROTECT, related_name="houses", null=True, blank=True
+    )
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
 
@@ -59,6 +73,7 @@ class House(models.Model):
     has_internet = models.BooleanField(default=False)
 
     is_available = models.BooleanField(default=True)
+    availability_last_confirmed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -80,6 +95,15 @@ class House(models.Model):
 
     def clean(self):
         errors = {}
+        if self.district_record_id and self.region_record_id:
+            if self.district_record.region_id != self.region_record_id:
+                errors["district_record"] = "District must belong to the selected region."
+        if self.ward_record_id and self.district_record_id:
+            if self.ward_record.district_id != self.district_record_id:
+                errors["ward_record"] = "Ward must belong to the selected district."
+        if self.street_id and self.ward_record_id:
+            if self.street.ward_id != self.ward_record_id:
+                errors["street"] = "Street must belong to the selected ward."
         if self.ensuite_bedrooms > self.bedrooms:
             errors["ensuite_bedrooms"] = "Ensuite bedrooms cannot exceed total bedrooms."
         if self.listing_type == self.ListingType.SALE and self.price_period != self.PricePeriod.ONE_TIME:

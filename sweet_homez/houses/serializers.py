@@ -96,10 +96,11 @@ class HouseSerializer(serializers.ModelSerializer):
             "price", "price_period", "price_period_display", "advance_payment_months",
             "agent_fee_type", "agent_fee_type_display", "agent_fee_amount", "agent_fee_percentage",
             "location", "address", "ward", "district", "region", "country", "latitude", "longitude",
+            "region_record", "district_record", "ward_record", "street",
             "rooms", "bedrooms", "ensuite_bedrooms", "bathrooms", "kitchens", "parking_spaces",
             "electricity_available", "water_available", "security_available", "furnished", "has_garden",
             "has_balcony", "has_air_conditioning", "has_internet", "media", "nearby_facilities", "translations",
-            "is_available", "created_at", "updated_at",
+            "is_available", "availability_last_confirmed_at", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "agent", "created_at", "updated_at"]
 

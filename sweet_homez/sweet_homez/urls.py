@@ -28,6 +28,8 @@ urlpatterns = [
     path('api/', include('users.urls')),
     path('api/', include('houses.urls')),
     path('api/', include('lookups.urls')),
+    path('api/assistant/', include('assistant.urls')),
+    path('assistant/', include('assistant.ui_urls')),
 ]
 
 if settings.DEBUG:

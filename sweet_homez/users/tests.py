@@ -3,7 +3,9 @@ from django.conf import settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Role, User
+from lookups.models import District, Region, Ward
+
+from .models import AgentProfile, Role, User
 
 
 class AuthenticationApiTests(APITestCase):
@@ -43,6 +45,26 @@ class AuthenticationApiTests(APITestCase):
         user = User.objects.get(username="normal")
         self.assertFalse(user.is_staff)
         self.assertFalse(user.roles.exists())
+
+    def test_agent_registration_requires_and_saves_coverage(self):
+        region = Region.objects.create(code="DSM", name_en="Dar es Salaam")
+        district = District.objects.create(region=region, code="KIN", name_en="Kinondoni")
+        ward = Ward.objects.create(district=district, code="MBZ", name_en="Mbezi Beach")
+        response = self.client.post("/api/auth/register-agent/", {
+            "username": "mbezi-agent",
+            "email": "mbezi-agent@example.com",
+            "password": self.password,
+            "password_confirm": self.password,
+            "agent_profile": {
+                "agency_name": "Mbezi Homes",
+                "phone_number": "+255700000002",
+                "coverage_wards": [ward.pk],
+            },
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        profile = AgentProfile.objects.get(user__username="mbezi-agent")
+        self.assertTrue(profile.coverage_wards.filter(pk=ward.pk).exists())
+        self.assertTrue(profile.user.roles.filter(name="Agent").exists())
 
 
 class UserManagementApiTests(APITestCase):

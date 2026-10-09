@@ -1,8 +1,10 @@
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from houses.models import House, HouseMedia, HouseTranslation, NearbyFacility
+from lookups.models import Ward
 from users.models import AgentProfile, Role, User
 
 
@@ -93,7 +95,7 @@ class Command(BaseCommand):
             agent.set_unusable_password()
             agent.save(update_fields=["password"])
         agent.roles.add(agent_role)
-        AgentProfile.objects.update_or_create(
+        agent_profile, _ = AgentProfile.objects.update_or_create(
             user=agent,
             defaults={
                 "agency_name": "SweetHomez Realty",
@@ -104,6 +106,7 @@ class Command(BaseCommand):
                 "is_verified": True,
             },
         )
+        agent_profile.coverage_wards.set(Ward.objects.filter(is_active=True))
 
         created_count = 0
         updated_count = 0
@@ -120,6 +123,8 @@ class Command(BaseCommand):
         for index, data in enumerate(HOUSES):
             title = data["title"]
             ward, district, region, latitude, longitude = coordinates[index]
+            ward_record = Ward.objects.select_related("district__region").filter(name_en=ward).first()
+            street = ward_record.localities.filter(locality_type__code="street").first() if ward_record else None
             listing_type = data["listing_type"]
             house, created = House.objects.update_or_create(
                 title=title,
@@ -141,6 +146,10 @@ class Command(BaseCommand):
                     "ward": ward,
                     "district": district,
                     "region": region,
+                    "region_record": ward_record.district.region if ward_record else None,
+                    "district_record": ward_record.district if ward_record else None,
+                    "ward_record": ward_record,
+                    "street": street,
                     "latitude": Decimal(latitude),
                     "longitude": Decimal(longitude),
                     "electricity_available": True,
@@ -152,6 +161,7 @@ class Command(BaseCommand):
                     "has_air_conditioning": index in (0, 4, 7),
                     "has_internet": True,
                     "is_available": True,
+                    "availability_last_confirmed_at": timezone.now(),
                 },
             )
             HouseMedia.objects.update_or_create(
