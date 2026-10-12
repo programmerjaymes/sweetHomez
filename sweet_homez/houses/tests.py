@@ -98,11 +98,11 @@ class PublicHouseApiTests(APITestCase):
         response = self.client.post("/api/houses/", {})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_house_read_without_api_key_is_rejected(self):
+    def test_house_read_without_api_key_is_public(self):
         self.client.credentials()
         response = self.client.get("/api/houses/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["detail"], "A valid X-API-Key header is required.")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
 
     def test_agent_can_create_owned_house(self):
         self.client.force_authenticate(self.agent)
