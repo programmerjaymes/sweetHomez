@@ -11,11 +11,7 @@ class RequireAPIKeyMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        public_house_read = (
-            request.method in {"GET", "HEAD", "OPTIONS"}
-            and request.path.startswith("/api/houses/")
-        )
-        if request.path.startswith("/api/") and not public_house_read:
+        if request.path.startswith("/api/"):
             supplied_key = request.headers.get("X-API-Key", "")
             expected_key = settings.API_KEY
             if not supplied_key or not hmac.compare_digest(supplied_key, expected_key):

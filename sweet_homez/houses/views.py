@@ -1,9 +1,12 @@
 from django.db.models import Q
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import exceptions, viewsets
+from rest_framework import exceptions, permissions, status, viewsets
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import House, HouseMedia, HouseTranslation, NearbyFacility
 from .permissions import IsAgentOwnerOrReadOnly
+from .ai import create_house_draft
 from .serializers import HouseMediaSerializer, HouseSerializer, HouseTranslationSerializer, NearbyFacilitySerializer
 
 
@@ -43,6 +46,20 @@ class HouseViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(agent=self.request.user)
+
+
+class AgentListingDraftView(APIView):
+    permission_classes = [IsAgentOwnerOrReadOnly]
+
+    def post(self, request):
+        prompt = str(request.data.get("prompt", "")).strip()
+        if not prompt:
+            return Response({"detail": "Describe the property you want to publish."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            draft = create_house_draft(prompt, "sw" if request.data.get("language") == "sw" else "en")
+        except Exception as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(draft.model_dump())
 
 
 @houses_schema

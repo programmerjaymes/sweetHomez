@@ -130,6 +130,11 @@ if not API_KEY:
         "API_KEY must be configured in the environment or .env file."
     )
 
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "")
+
 
 # ============================================================
 # INSTALLED APPLICATIONS

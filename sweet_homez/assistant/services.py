@@ -19,6 +19,13 @@ viewing, and evaluating homes. For unrelated topics, briefly and politely redire
 customer to property matters. Never claim to be a human and never invent listings,
 prices, availability, providers, or search results. Your assistant_reply must not claim
 that a database search has run; the application adds verified match information later.
+The input can include recently recommended properties from the database. Treat that
+structured data as authoritative conversation context. Words such as "this house",
+"that house", "the house above", "hii nyumba", and "nyumba uliyonipa hapo juu" refer
+to those recent results. Use their supplied property and agent details when answering.
+Do not ask the customer to repeat a listing already present in that context. If several
+recent properties make the reference ambiguous, ask which property they mean. Never
+invent a phone number or other contact detail absent from the supplied context.
 When information is missing for a requested search, ask one concise follow-up question.
 
 Also extract the customer's complete, current search requirements.
@@ -59,7 +66,10 @@ def requirement_values(requirements: SearchRequirements | None) -> dict:
 
 
 def extract_requirements(
-    message: str, current: dict, history: list[dict[str, str]] | None = None
+    message: str,
+    current: dict,
+    history: list[dict[str, str]] | None = None,
+    recent_properties: list[dict] | None = None,
 ) -> ExtractedRequirements:
     if not settings.OPENAI_API_KEY:
         raise AssistantConfigurationError("OPENAI_API_KEY is not configured.")
@@ -75,6 +85,8 @@ def extract_requirements(
             input=(
                 f"Saved requirements:\n{json.dumps(current, ensure_ascii=False)}\n\n"
                 f"Recent conversation:\n{json.dumps(history or [], ensure_ascii=False)}\n\n"
+                "Recently recommended properties (authoritative database context):\n"
+                f"{json.dumps(recent_properties or [], ensure_ascii=False)}\n\n"
                 f"Newest customer message:\n{message}"
             ),
             text_format=ExtractedRequirements,

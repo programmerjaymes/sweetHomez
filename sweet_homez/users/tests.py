@@ -1,11 +1,13 @@
 from django.contrib.auth.models import Permission
 from django.conf import settings
+from django.test import override_settings
+from unittest.mock import Mock, patch
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from lookups.models import District, Region, Ward
 
-from .models import AgentProfile, Role, User
+from .models import AgentProfile, Role, Subscription, User
 
 
 class AuthenticationApiTests(APITestCase):
@@ -33,6 +35,48 @@ class AuthenticationApiTests(APITestCase):
         profile = self.client.get("/api/auth/me/")
         self.assertEqual(profile.status_code, status.HTTP_200_OK)
         self.assertEqual(profile.data["email"], "jane@example.com")
+
+    def test_login_accepts_email_address(self):
+        User.objects.create_user("email-user", "email-login@example.com", self.password)
+        response = self.client.post("/api/auth/login/", {"username": "email-login@example.com", "password": self.password})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user"]["email"], "email-login@example.com")
+
+    @override_settings(DEBUG=True, TWILIO_ACCOUNT_SID="", TWILIO_AUTH_TOKEN="", TWILIO_FROM_NUMBER="")
+    def test_phone_code_can_register_and_login_user_in_development(self):
+        requested = self.client.post("/api/auth/phone/request/", {"phone_number": "+255712345678"})
+        self.assertEqual(requested.status_code, status.HTTP_200_OK)
+        verified = self.client.post("/api/auth/phone/verify/", {"phone_number": "+255712345678", "code": requested.data["debug_code"]})
+        self.assertEqual(verified.status_code, status.HTTP_200_OK)
+        self.assertEqual(verified.data["user"]["phone_number"], "+255712345678")
+        self.assertTrue(verified.data["user"]["phone_verified"])
+
+    @override_settings(GOOGLE_CLIENT_ID="client.apps.googleusercontent.com")
+    @patch("users.views.jwt.decode")
+    @patch("users.views.google_jwk_client.get_signing_key_from_jwt")
+    def test_google_login_starts_paid_onboarding_for_a_new_user(self, signing_key, decode):
+        signing_key.return_value = Mock(key="public-key")
+        decode.return_value = {"sub": "google-123", "email": "google@example.com", "email_verified": True, "given_name": "Google", "family_name": "User"}
+        response = self.client.post("/api/auth/google/", {"credential": "signed-token"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["requires_onboarding"])
+        self.assertFalse(User.objects.filter(email="google@example.com").exists())
+        completed = self.client.post("/api/auth/onboarding/complete/", {"onboarding_token": response.data["onboarding_token"], "plan_code": "home_basic", "phone_number": "+255712345678"})
+        self.assertEqual(completed.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(completed.data["user"]["email"], "google@example.com")
+        self.assertEqual(User.objects.get(email="google@example.com").google_sub, "google-123")
+        self.assertEqual(Subscription.objects.get(user__email="google@example.com").amount, 5000)
+
+    @override_settings(GOOGLE_CLIENT_ID="client.apps.googleusercontent.com")
+    @patch("users.views.jwt.decode")
+    @patch("users.views.google_jwk_client.get_signing_key_from_jwt")
+    def test_google_login_does_not_auto_register_unknown_user(self, signing_key, decode):
+        signing_key.return_value = Mock(key="public-key")
+        decode.return_value = {"sub": "new-google-user", "email": "new@example.com", "email_verified": True}
+        response = self.client.post("/api/auth/google/", {"credential": "signed-token"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["requires_onboarding"])
+        self.assertFalse(User.objects.filter(email="new@example.com").exists())
 
     def test_registration_cannot_assign_privileged_role(self):
         role = Role.objects.create(name="Administrators")

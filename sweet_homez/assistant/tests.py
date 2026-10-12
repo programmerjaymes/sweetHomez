@@ -18,6 +18,13 @@ class AssistantApiTests(APITestCase):
     def setUp(self):
         self.client.credentials(HTTP_X_API_KEY=settings.API_KEY)
         self.agent = User.objects.create_user("assistant-agent", "assistant-agent@example.com", "pass")
+        AgentProfile.objects.create(
+            user=self.agent,
+            agency_name="SweetHomez Realty",
+            phone_number="+255700123456",
+            whatsapp_number="+255700123456",
+            is_verified=True,
+        )
         self.match = House.objects.create(
             agent=self.agent,
             title="Mbezi three-bedroom home",
@@ -82,6 +89,34 @@ class AssistantApiTests(APITestCase):
         )
         self.assertEqual(response.data["requirements"]["bedrooms"], 3)
         self.assertTrue(SearchConversation.objects.filter(pk=response.data["conversation_id"]).exists())
+        conversation = SearchConversation.objects.get(pk=response.data["conversation_id"])
+        self.assertEqual(conversation.last_recommended_house_ids, [self.match.pk])
+
+    @patch("assistant.views.extract_requirements")
+    def test_follow_up_can_reference_agent_for_last_displayed_house(self, extract):
+        conversation = SearchConversation.objects.create(
+            language="sw", last_recommended_house_ids=[self.match.pk]
+        )
+        SearchRequirements.objects.create(conversation=conversation, location="Mbezi")
+        extract.return_value = ExtractedRequirements(
+            intent="property_question",
+            assistant_reply="Ni nyumba gani unayomaanisha?",
+            language="sw",
+        )
+
+        response = self.client.post("/api/assistant/chat/", {
+            "conversation_id": str(conversation.pk),
+            "message": "nataka namba za nyumba uliyonipa hapo juu",
+        }, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("+255700123456", response.data["message"])
+        self.assertIn(self.match.title, response.data["message"])
+        self.assertEqual(response.data["matches"][0]["id"], self.match.pk)
+        self.assertEqual(response.data["requirements"]["location"], "Mbezi")
+        recent_properties = extract.call_args.kwargs["recent_properties"]
+        self.assertEqual(recent_properties[0]["id"], self.match.pk)
+        self.assertEqual(recent_properties[0]["agent"]["phone"], "+255700123456")
 
     @patch("assistant.views.extract_requirements")
     def test_follow_up_reuses_conversation(self, extract):
@@ -288,7 +323,7 @@ class AssistantApiTests(APITestCase):
         self.assertEqual(viewing.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ViewingRequest.objects.count(), 1)
 
-    def test_local_test_page_includes_configured_application_key(self):
+    def test_local_test_page_does_not_expose_configured_application_key(self):
         response = self.client.get("/assistant/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertContains(response, settings.API_KEY)
+        self.assertNotContains(response, settings.API_KEY)

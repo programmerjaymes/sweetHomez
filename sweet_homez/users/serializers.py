@@ -2,6 +2,8 @@ from django.contrib.auth.models import Permission
 from django.contrib.auth.password_validation import validate_password as django_validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.utils import timezone
 
 from lookups.models import District, Locality, Region, Ward
 
@@ -29,14 +31,26 @@ class UserSerializer(serializers.ModelSerializer):
     roles = serializers.PrimaryKeyRelatedField(queryset=Role.objects.all(), many=True, required=False)
     permissions = serializers.PrimaryKeyRelatedField(source="user_permissions", queryset=Permission.objects.all(), many=True, required=False)
     effective_permissions = serializers.SerializerMethodField()
+    registration_complete = serializers.SerializerMethodField()
+    account_type = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "password", "first_name", "last_name", "is_active", "is_staff", "roles", "permissions", "effective_permissions", "date_joined"]
-        read_only_fields = ["id", "effective_permissions", "date_joined"]
+        fields = ["id", "username", "email", "phone_number", "profile_image_url", "phone_verified", "registration_complete", "account_type", "password", "first_name", "last_name", "is_active", "is_staff", "roles", "permissions", "effective_permissions", "date_joined"]
+        read_only_fields = ["id", "phone_verified", "effective_permissions", "date_joined"]
 
     def get_effective_permissions(self, obj) -> list[str]:
         return sorted(obj.get_all_permissions())
+
+    def get_registration_complete(self, obj) -> bool:
+        subscription = getattr(obj, "subscription", None)
+        if not subscription:
+            return False
+        return subscription.status == "active" and subscription.expires_at > timezone.now()
+
+    def get_account_type(self, obj) -> str | None:
+        subscription = getattr(obj, "subscription", None)
+        return subscription.account_type if subscription else None
 
     def get_fields(self):
         fields = super().get_fields()
@@ -120,7 +134,7 @@ class AgentProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = AgentProfile
         fields = [
-            "agency_name", "phone_number", "whatsapp_number", "license_number", "bio",
+            "agency_name", "phone_number", "whatsapp_number", "license_number", "bio", "coverage_areas",
             "is_verified", "coverage_regions", "coverage_districts", "coverage_wards",
             "coverage_localities",
         ]
@@ -172,3 +186,15 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
+
+
+class EmailOrUsernameTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        identifier = attrs.get(self.username_field, "")
+        if "@" in identifier:
+            user = User.objects.filter(email__iexact=identifier).only("username").first()
+            if user:
+                attrs[self.username_field] = user.username
+        data = super().validate(attrs)
+        data["user"] = UserSerializer(self.user).data
+        return data

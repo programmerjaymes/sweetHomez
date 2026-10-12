@@ -33,6 +33,19 @@ class SearchConversationSerializer(serializers.ModelSerializer):
         fields = ["id", "language", "requirements", "messages", "created_at", "updated_at"]
 
 
+class ConversationHistorySerializer(serializers.ModelSerializer):
+    title = serializers.SerializerMethodField()
+    message_count = serializers.IntegerField(read_only=True)
+
+    def get_title(self, obj):
+        first_message = next((message for message in obj.messages.all() if message.role == SearchMessage.Role.USER), None)
+        return first_message.content[:80] if first_message else "New conversation"
+
+    class Meta:
+        model = SearchConversation
+        fields = ["id", "title", "language", "message_count", "created_at", "updated_at"]
+
+
 class ChatResponseSerializer(serializers.Serializer):
     conversation_id = serializers.UUIDField()
     message = serializers.CharField()

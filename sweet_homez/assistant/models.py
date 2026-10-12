@@ -17,6 +17,8 @@ class SearchConversation(models.Model):
     )
     language = models.CharField(max_length=5, default="en")
     consecutive_off_topic_count = models.PositiveSmallIntegerField(default=0)
+    # Structured memory of the property cards most recently shown to the user.
+    last_recommended_house_ids = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

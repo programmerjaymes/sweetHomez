@@ -45,8 +45,8 @@
     <h1><span class="brand">Sweet Homez</span> AI</h1>
     <p>Test natural-language property discovery.</p>
     <label for="apiKey">Application API key</label>
-    <input id="apiKey" type="password" autocomplete="off" readonly>
-    <small>Loaded automatically from Django for this local test page.</small>
+    <input id="apiKey" type="password" autocomplete="off" placeholder="Enter X-API-Key">
+    <small>The key is never embedded in this page. Enter it for this browser session only.</small>
     <h2>Current requirements</h2>
     <div id="requirements">No requirements yet.</div>
     <button id="reset" type="button" style="margin-top:14px">New conversation</button>
@@ -64,7 +64,6 @@
     </form>
   </section>
 </main>
-{{ application_api_key|json_script:"configured-api-key" }}
 <script>
   const apiKey = document.querySelector('#apiKey');
   const form = document.querySelector('#chatForm');
@@ -74,9 +73,8 @@
   const matches = document.querySelector('#matches');
   const agents = document.querySelector('#agents');
   const requirements = document.querySelector('#requirements');
-  const configuredApiKey = JSON.parse(document.querySelector('#configured-api-key').textContent);
-  apiKey.value = configuredApiKey;
-  sessionStorage.removeItem('sweethomezApiKey');
+  apiKey.value = sessionStorage.getItem('sweethomezApiKey') || '';
+  apiKey.addEventListener('input', () => sessionStorage.setItem('sweethomezApiKey', apiKey.value));
   let conversationId = localStorage.getItem('sweethomezConversationId');
 
   function addMessage(text, role, extra='') {
@@ -152,7 +150,7 @@
     const preferred = prompt('Preferred date and time (example: 2026-10-12 10:00)'); if (!preferred) return;
     try {
       const response = await fetch('/api/assistant/viewings/', {
-        method:'POST', headers:{'Content-Type':'application/json','X-API-Key':configuredApiKey},
+        method:'POST', headers:{'Content-Type':'application/json','X-API-Key':apiKey.value.trim()},
         body:JSON.stringify({house:house.id,conversation:conversationId || null,customer_name,phone_number,preferred_at:new Date(preferred).toISOString()})
       });
       const data = await response.json(); if (!response.ok) throw new Error(JSON.stringify(data));
@@ -161,12 +159,12 @@
   }
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (!configuredApiKey) { addMessage('The Sweet Homez API_KEY is not configured on the server.', 'assistant', 'error'); return; }
+    if (!apiKey.value.trim()) { addMessage('Enter a valid X-API-Key before sending a request.', 'assistant', 'error'); return; }
     const text = input.value.trim(); if (!text) return;
     addMessage(text, 'user'); input.value = ''; send.disabled = true; send.textContent = 'Thinking…';
     try {
       const response = await fetch('/api/assistant/chat/', {
-        method:'POST', headers:{'Content-Type':'application/json','X-API-Key':configuredApiKey},
+        method:'POST', headers:{'Content-Type':'application/json','X-API-Key':apiKey.value.trim()},
         body:JSON.stringify({conversation_id:conversationId || null,message:text})
       });
       const data = await response.json();

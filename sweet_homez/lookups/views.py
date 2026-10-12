@@ -12,7 +12,9 @@ lookups_schema = extend_schema_view(
 
 
 class AuthenticatedLookupViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [permissions.IsAuthenticated]
+    # Read-only geographic data is available during onboarding. The global
+    # API-key middleware still protects every /api/ request.
+    permission_classes = [permissions.AllowAny]
     pagination_class = None
 
 
