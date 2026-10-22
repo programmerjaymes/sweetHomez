@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import AgentProfile, Role, User
+from .models import AgentProfile, Bundle, Role, User
 
 
 class AgentProfileInline(admin.StackedInline):
@@ -15,6 +15,14 @@ class RoleAdmin(admin.ModelAdmin):
     list_display = ("name", "description")
     search_fields = ("name", "description")
     filter_horizontal = ("permissions",)
+
+
+@admin.register(Bundle)
+class BundleAdmin(admin.ModelAdmin):
+    list_display = ("name", "code", "audience", "amount", "duration_days", "is_default", "is_active", "display_order")
+    list_filter = ("audience", "is_default", "is_active")
+    search_fields = ("name", "code", "description")
+    ordering = ("audience", "display_order", "amount")
 
 
 @admin.register(User)

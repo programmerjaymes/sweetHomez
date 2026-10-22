@@ -52,6 +52,7 @@ class Region(BilingualNameMixin):
 
     class Meta:
         ordering = ["name_en"]
+        permissions = [("sync_administrative_areas", "Can synchronize administrative areas")]
 
     def __str__(self):
         return self.name_en

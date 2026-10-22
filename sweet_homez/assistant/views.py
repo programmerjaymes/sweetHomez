@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from houses.models import House
 from houses.serializers import HouseSerializer
+from users.limits import enforce_prompt_limits
 
 from .models import Inquiry, SearchConversation, SearchMessage, SearchRequirements, ViewingRequest
 from .serializers import (
@@ -87,6 +88,27 @@ def is_agent_contact_question(message):
     ))
 
 
+def is_greeting(message):
+    normalized = " ".join(message.casefold().strip().split()).strip("!,.?")
+    greetings = {"hi", "hello", "hey", "habari", "mambo", "hujambo", "salama", "good morning", "good afternoon", "good evening"}
+    additions = {"sweetie", "dear", "rafiki", "friend", "sweethome", "sweethomez"}
+    return normalized in greetings or any(
+        normalized == f"{greeting} {addition}" for greeting in greetings for addition in additions
+    )
+
+
+def is_agent_own_listings_request(message):
+    normalized = " ".join(message.casefold().split())
+    ownership = any(term in normalized for term in (
+        "nilizopost", "nilizochapisha", "nilizotangaza", "nyumba zangu", "matangazo yangu",
+        "my houses", "my homes", "my properties", "my listings", "i posted", "i published",
+    ))
+    view_action = any(term in normalized for term in (
+        "onyesha", "nionyeshe", "nataka kuona", "angalia", "show", "view", "see", "list",
+    ))
+    return ownership and view_action
+
+
 def contact_reply(house, language):
     profile = house.agent.agent_profile if hasattr(house.agent, "agent_profile") else None
     phone = (profile.whatsapp_number or profile.phone_number) if profile else ""
@@ -119,9 +141,11 @@ class ChatView(APIView):
         if conversation_id:
             conversation = get_conversation_for_request(request, conversation_id)
         else:
+            enforce_prompt_limits(request.user)
             conversation = SearchConversation.objects.create(
                 user=request.user if request.user.is_authenticated else None
             )
+        enforce_prompt_limits(request.user, conversation)
 
         requirements, _ = SearchRequirements.objects.get_or_create(conversation=conversation)
         remembered_matches = get_remembered_houses(conversation)
@@ -129,6 +153,33 @@ class ChatView(APIView):
         SearchMessage.objects.create(
             conversation=conversation, role=SearchMessage.Role.USER, content=message
         )
+        if (
+            request.user.is_authenticated
+            and hasattr(request.user, "agent_profile")
+            and is_agent_own_listings_request(message)
+        ):
+            language = "sw" if any(term in message.casefold() for term in ("nyumba", "nionyeshe", "onyesha", "matangazo", "nilizo")) else "en"
+            matches = list(
+                House.objects.filter(agent=request.user)
+                .select_related("agent", "agent__agent_profile", "region_record", "district_record", "ward_record", "street")
+                .prefetch_related("media", "nearby_facilities", "translations")[:30]
+            )
+            conversation.language = language
+            conversation.last_recommended_house_ids = [house.pk for house in matches]
+            conversation.save(update_fields=["language", "last_recommended_house_ids", "updated_at"])
+            if language == "sw":
+                reply = f"Hizi ni nyumba zako zilizopo. Una matangazo {len(matches)}." if matches else "Bado hujachapisha nyumba yoyote. Unaweza kuanza kwa kuchagua ‘Post nyumba’."
+            else:
+                reply = f"Here are your existing properties. You have {len(matches)} listings." if matches else "You have not published any properties yet. You can start by selecting ‘Post a house’."
+            SearchMessage.objects.create(conversation=conversation, role=SearchMessage.Role.ASSISTANT, content=reply)
+            return Response({
+                "conversation_id": conversation.pk,
+                "message": reply,
+                "requirements": SearchRequirementsSerializer(requirements).data,
+                "matches": HouseSerializer(matches, many=True, context={"request": request}).data,
+                "recommended_agents": [],
+                "missing_requirements": [],
+            })
         history = list(
             conversation.messages.order_by("-created_at", "-id")[:10].values("role", "content")
         )
@@ -172,6 +223,17 @@ class ChatView(APIView):
             else []
         )
         conversational_reply = extracted.assistant_reply
+        if (
+            extracted.intent == "casual_conversation"
+            and is_greeting(message)
+            and request.user.is_authenticated
+            and hasattr(request.user, "agent_profile")
+        ):
+            conversational_reply = (
+                "Habari! Karibu tena SweetHomez. Kama wakala, naweza kukusaidia kupost nyumba mpya, kuendelea na rasimu ya tangazo, kusimamia taarifa za nyumba zako, au kujibu swali lolote kuhusu kazi yako ya uwakala. Ungependa kufanya nini?"
+                if extracted.language == "sw" else
+                "Hello! Welcome back to SweetHomez. As an agent, I can help you post a new property, continue a listing draft, manage your property information, or answer any agent-related question. What would you like to do?"
+            )
         if (
             extracted.intent == "property_question"
             and is_agent_contact_question(message)
@@ -237,6 +299,12 @@ class ConversationHistoryView(APIView):
             .order_by("-updated_at")[:30]
         )
         return Response(ConversationHistorySerializer(conversations, many=True).data)
+
+    def delete(self, request):
+        conversations = SearchConversation.objects.filter(user=request.user)
+        deleted_count = conversations.count()
+        conversations.delete()
+        return Response({"deleted_count": deleted_count})
 
 
 @extend_schema_view(post=extend_schema(tags=["AI Assistant"]))

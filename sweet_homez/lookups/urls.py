@@ -1,6 +1,7 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import DistrictViewSet, LocalityViewSet, LookupCategoryViewSet, LookupValueViewSet, RegionViewSet, WardViewSet
+from .views import DistrictViewSet, LocalityViewSet, LookupCategoryViewSet, LookupValueViewSet, RegionViewSet, WardViewSet, sync_administrative_areas
 
 router = DefaultRouter()
 router.register("lookup-categories", LookupCategoryViewSet, basename="lookup-category")
@@ -10,4 +11,4 @@ router.register("districts", DistrictViewSet, basename="district")
 router.register("wards", WardViewSet, basename="ward")
 router.register("localities", LocalityViewSet, basename="locality")
 
-urlpatterns = router.urls
+urlpatterns = [path("administrative-areas/sync/", sync_administrative_areas, name="sync-administrative-areas"), *router.urls]

@@ -17,6 +17,38 @@ class Role(models.Model):
         return self.name
 
 
+class Bundle(models.Model):
+    class Audience(models.TextChoices):
+        HOME_SEEKER = "home_seeker", "Normal user"
+        AGENT = "agent", "Agent"
+
+    code = models.SlugField(max_length=50, unique=True)
+    name = models.CharField(max_length=120)
+    audience = models.CharField(max_length=20, choices=Audience.choices)
+    description = models.TextField(blank=True)
+    amount = models.PositiveIntegerField()
+    duration_days = models.PositiveIntegerField(default=30)
+    advantages = models.JSONField(default=list, blank=True)
+    is_active = models.BooleanField(default=True)
+    is_default = models.BooleanField(default=False)
+    display_order = models.PositiveSmallIntegerField(default=0)
+    prompts_per_chat = models.PositiveIntegerField(null=True, blank=True)
+    prompts_per_day = models.PositiveIntegerField(null=True, blank=True)
+    prompts_per_week = models.PositiveIntegerField(null=True, blank=True)
+    total_prompts = models.PositiveIntegerField(null=True, blank=True)
+    max_houses = models.PositiveIntegerField(null=True, blank=True)
+    video_upload_allowed = models.BooleanField(default=False)
+    max_photos_per_house = models.PositiveIntegerField(default=12)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["audience", "display_order", "amount", "name"]
+
+    def __str__(self):
+        return self.name
+
+
 class User(AbstractUser):
     """Application user with secure password handling and RBAC support."""
 
@@ -27,6 +59,12 @@ class User(AbstractUser):
     phone_verified = models.BooleanField(default=False)
     roles = models.ManyToManyField(Role, blank=True, related_name="users")
     REQUIRED_FIELDS = ["email"]
+
+    class Meta:
+        permissions = [
+            ("view_admin_dashboard", "Can view the administrator dashboard"),
+            ("reset_user_password", "Can regenerate user passwords"),
+        ]
 
     def __str__(self):
         return self.username
@@ -76,3 +114,30 @@ class Subscription(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     starts_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
+
+
+class LoginActivity(models.Model):
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="login_activities")
+    identifier = models.CharField(max_length=254, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    successful = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name_plural = "login activities"
+
+
+class AuditTrail(models.Model):
+    actor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="audit_actions")
+    action = models.CharField(max_length=100)
+    target_type = models.CharField(max_length=100, blank=True)
+    target_id = models.CharField(max_length=100, blank=True)
+    target_label = models.CharField(max_length=254, blank=True)
+    details = models.JSONField(default=dict, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]

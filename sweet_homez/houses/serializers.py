@@ -77,6 +77,7 @@ class HouseTranslationSerializer(serializers.ModelSerializer):
 
 
 class HouseSerializer(serializers.ModelSerializer):
+    title = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     agent = AgentInfoSerializer(read_only=True)
     listing_type_display = serializers.CharField(source="get_listing_type_display", read_only=True)
     price_period_display = serializers.CharField(source="get_price_period_display", read_only=True)
@@ -97,12 +98,13 @@ class HouseSerializer(serializers.ModelSerializer):
             "agent_fee_type", "agent_fee_type_display", "agent_fee_amount", "agent_fee_percentage",
             "location", "address", "ward", "district", "region", "country", "latitude", "longitude",
             "region_record", "district_record", "ward_record", "street",
-            "rooms", "bedrooms", "ensuite_bedrooms", "bathrooms", "kitchens", "parking_spaces",
+            "rooms", "bedrooms", "ensuite_bedrooms", "outdoor_toilets", "bathrooms", "has_living_room", "kitchens",
+            "has_indoor_kitchen", "has_outdoor_kitchen", "parking_spaces",
             "electricity_available", "water_available", "security_available", "furnished", "has_garden",
             "has_balcony", "has_air_conditioning", "has_internet", "media", "nearby_facilities", "translations",
-            "is_available", "availability_last_confirmed_at", "created_at", "updated_at",
+            "is_available", "availability_last_confirmed_at", "moderation_status", "moderated_at", "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "agent", "created_at", "updated_at"]
+        read_only_fields = ["id", "agent", "moderation_status", "moderated_at", "created_at", "updated_at"]
 
     def get_language(self, obj) -> str:
         request = self.context.get("request")
@@ -126,6 +128,10 @@ class HouseSerializer(serializers.ModelSerializer):
         return data
 
     def validate(self, attrs):
+        if not attrs.get("title"):
+            listing_label = "for sale" if attrs.get("listing_type", getattr(self.instance, "listing_type", "rent")) == "sale" else "for rent"
+            location = next((str(attrs.get(field, "")).strip() for field in ("address", "ward", "district", "region") if str(attrs.get(field, "")).strip()), "Tanzania")
+            attrs["title"] = f"House {listing_label} in {location}"[:200]
         instance = self.instance or House()
         for field, value in attrs.items():
             setattr(instance, field, value)

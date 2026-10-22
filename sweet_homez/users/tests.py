@@ -1,5 +1,6 @@
 from django.contrib.auth.models import Permission
 from django.conf import settings
+from django.core import signing
 from django.test import override_settings
 from unittest.mock import Mock, patch
 from rest_framework import status
@@ -42,6 +43,17 @@ class AuthenticationApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["user"]["email"], "email-login@example.com")
 
+    def test_administrator_does_not_require_paid_onboarding(self):
+        admin = User.objects.create_superuser("platform-admin", "platform-admin@example.com", self.password)
+        admin.roles.add(Role.objects.create(name="Platform Administrator"))
+        self.client.force_authenticate(admin)
+        response = self.client.get("/api/auth/me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["registration_complete"])
+        self.assertTrue(response.data["is_staff"])
+        self.assertTrue(response.data["is_superuser"])
+        self.assertEqual(response.data["role_names"], ["Platform Administrator"])
+
     @override_settings(DEBUG=True, TWILIO_ACCOUNT_SID="", TWILIO_AUTH_TOKEN="", TWILIO_FROM_NUMBER="")
     def test_phone_code_can_register_and_login_user_in_development(self):
         requested = self.client.post("/api/auth/phone/request/", {"phone_number": "+255712345678"})
@@ -77,6 +89,31 @@ class AuthenticationApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["requires_onboarding"])
         self.assertFalse(User.objects.filter(email="new@example.com").exists())
+
+    def test_onboarding_accepts_a_payment_number_used_by_another_account(self):
+        payment_phone = "+255767716952"
+        User.objects.create_user("phone-owner", "owner@example.com", self.password, phone_number=payment_phone)
+        token = signing.dumps({
+            "sub": "google-shared-payment-phone",
+            "email": "new-agent@example.com",
+            "first_name": "New",
+            "last_name": "Agent",
+            "picture": "",
+            "existing_user_id": None,
+        }, salt="google-onboarding")
+
+        response = self.client.post("/api/auth/onboarding/complete/", {
+            "onboarding_token": token,
+            "plan_code": "agent_starter",
+            "phone_number": payment_phone,
+            "coverage_areas": "Dar es Salaam",
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        agent = User.objects.get(email="new-agent@example.com")
+        self.assertIsNone(agent.phone_number)
+        self.assertEqual(agent.subscription.payment_phone, payment_phone)
+        self.assertEqual(agent.agent_profile.phone_number, payment_phone)
 
     def test_registration_cannot_assign_privileged_role(self):
         role = Role.objects.create(name="Administrators")

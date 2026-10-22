@@ -30,7 +30,7 @@ class SearchConversationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SearchConversation
-        fields = ["id", "language", "requirements", "messages", "created_at", "updated_at"]
+        fields = ["id", "language", "purpose", "listing_draft", "listing_ready", "requirements", "messages", "created_at", "updated_at"]
 
 
 class ConversationHistorySerializer(serializers.ModelSerializer):

@@ -8,6 +8,11 @@ from lookups.models import District, Locality, Region, Ward
 
 
 class House(models.Model):
+    class ModerationStatus(models.TextChoices):
+        PENDING = "pending", _("Pending review")
+        APPROVED = "approved", _("Approved")
+        REJECTED = "rejected", _("Disapproved")
+
     class ListingType(models.TextChoices):
         RENT = "rent", _("For rent")
         SALE = "sale", _("For sale")
@@ -57,10 +62,14 @@ class House(models.Model):
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
 
-    bedrooms = models.PositiveSmallIntegerField(default=1)
+    bedrooms = models.PositiveSmallIntegerField(default=0)
     ensuite_bedrooms = models.PositiveSmallIntegerField(default=0)
-    bathrooms = models.PositiveSmallIntegerField(default=1)
-    kitchens = models.PositiveSmallIntegerField(default=1)
+    outdoor_toilets = models.PositiveSmallIntegerField(default=0)
+    bathrooms = models.PositiveSmallIntegerField(default=0)
+    has_living_room = models.BooleanField(default=False)
+    kitchens = models.PositiveSmallIntegerField(default=0)
+    has_indoor_kitchen = models.BooleanField(default=False)
+    has_outdoor_kitchen = models.BooleanField(default=False)
     parking_spaces = models.PositiveSmallIntegerField(default=0)
 
     electricity_available = models.BooleanField(default=False)
@@ -73,12 +82,16 @@ class House(models.Model):
     has_internet = models.BooleanField(default=False)
 
     is_available = models.BooleanField(default=True)
+    moderation_status = models.CharField(max_length=12, choices=ModerationStatus.choices, default=ModerationStatus.APPROVED)
+    moderated_at = models.DateTimeField(null=True, blank=True)
+    moderated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="moderated_house_listings", null=True, blank=True)
     availability_last_confirmed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-created_at"]
+        permissions = [("moderate_house", "Can approve or reject house listings")]
         indexes = [
             models.Index(fields=["listing_type", "is_available"]),
             models.Index(fields=["region", "district"]),

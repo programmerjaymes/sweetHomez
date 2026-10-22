@@ -1,14 +1,18 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import AgentRegisterView, ChangePasswordView, CurrentAgentProfileView, CurrentUserView, LoginView, LogoutView, PermissionViewSet, RefreshTokenView, RegisterView, RoleViewSet, UserViewSet, complete_onboarding, google_login, onboarding_session, request_phone_code, verify_phone_code
+from .views import AgentRegisterView, BundleViewSet, ChangePasswordView, CurrentAgentProfileView, CurrentUserView, LoginView, LogoutView, PermissionViewSet, RefreshTokenView, RegisterView, RoleViewSet, UserViewSet, admin_conversation_detail, admin_dashboard, admin_records, complete_onboarding, google_login, onboarding_session, request_phone_code, verify_phone_code
 
 router = DefaultRouter()
 router.register("users", UserViewSet, basename="user")
 router.register("roles", RoleViewSet, basename="role")
 router.register("permissions", PermissionViewSet, basename="permission")
+router.register("bundles", BundleViewSet, basename="bundle")
 
 urlpatterns = [
+    path("admin/dashboard/", admin_dashboard, name="admin-dashboard"),
+    path("admin/records/", admin_records, name="admin-records"),
+    path("admin/conversations/<uuid:conversation_id>/", admin_conversation_detail, name="admin-conversation-detail"),
     path("auth/register/", RegisterView.as_view(), name="register"),
     path("auth/register-agent/", AgentRegisterView.as_view(), name="register-agent"),
     path("auth/login/", LoginView.as_view(), name="login"),

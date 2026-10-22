@@ -9,30 +9,33 @@ from datetime import timedelta
 import jwt
 from django.conf import settings
 from django.core import signing
+from django.core.paginator import Paginator
 from django.db import transaction
+from django.db.models import Avg, Count, Sum
+from django.db.models.functions import TruncDate, TruncMonth
+from django.db.models import Q
 from django.contrib.auth.models import Permission
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, permissions, status, viewsets
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from django.utils import timezone
 
-from .models import AgentProfile, PhoneVerificationCode, Role, Subscription, User
-from .serializers import AgentProfileSerializer, AgentRegisterSerializer, ChangePasswordSerializer, EmailOrUsernameTokenObtainPairSerializer, LogoutSerializer, PermissionSerializer, RegisterSerializer, RoleSerializer, UserSerializer
+from .models import AgentProfile, AuditTrail, Bundle, LoginActivity, PhoneVerificationCode, Role, Subscription, User
+from .permissions import AdminRecordPermission, ModelActionPermissions, permission_required
+from .serializers import AgentProfileSerializer, AgentRegisterSerializer, BundleSerializer, ChangePasswordSerializer, EmailOrUsernameTokenObtainPairSerializer, LogoutSerializer, PermissionSerializer, RegisterSerializer, RoleSerializer, UserSerializer
 
 logger = logging.getLogger(__name__)
 google_jwk_client = jwt.PyJWKClient("https://www.googleapis.com/oauth2/v3/certs", cache_keys=True)
-ONBOARDING_PLANS = {
-    "home_basic": {"account_type": "home_seeker", "name": "Home Basic", "amount": 5000},
-    "home_plus": {"account_type": "home_seeker", "name": "Home Plus", "amount": 10000},
-    "agent_starter": {"account_type": "agent", "name": "Agent Starter", "amount": 20000},
-    "agent_pro": {"account_type": "agent", "name": "Agent Pro", "amount": 35000},
-}
+def _audit(request, action, target, details=None):
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
+    AuditTrail.objects.create(actor=request.user, action=action, target_type="user", target_id=str(target.pk), target_label=target.email, details=details or {}, ip_address=forwarded or request.META.get("REMOTE_ADDR") or None)
 
 
 def _tokens_for(user):
@@ -114,24 +117,32 @@ def complete_onboarding(request):
     except (signing.BadSignature, ValueError):
         return Response({"detail": "Invalid registration session or phone number."}, status=400)
     plan_code = request.data.get("plan_code", "")
-    plan = ONBOARDING_PLANS.get(plan_code)
+    plan = Bundle.objects.filter(code=plan_code, is_active=True).first()
     if not plan:
         return Response({"detail": "Choose a valid bundle."}, status=400)
     existing_user_id = identity.get("existing_user_id")
     upgrading_agent = bool(identity.get("upgrade_agent"))
     if not existing_user_id and (User.objects.filter(email__iexact=identity["email"]).exists() or User.objects.filter(google_sub=identity["sub"]).exists()):
         return Response({"detail": "This Google account is already registered. Please log in."}, status=409)
-    if plan["account_type"] == "agent" and not str(request.data.get("coverage_areas", "")).strip():
+    if plan.audience == Bundle.Audience.AGENT and not str(request.data.get("coverage_areas", "")).strip():
         return Response({"detail": "Agents must provide at least one coverage area."}, status=400)
     with transaction.atomic():
+        # This is the mobile-money number paying for the bundle. It may belong
+        # to another account (for example, when a relative pays), so do not let
+        # the User.phone_number uniqueness constraint block registration.
+        phone_available = not User.objects.filter(phone_number=phone).exclude(pk=existing_user_id).exists()
         if existing_user_id:
             user = User.objects.select_for_update().get(pk=existing_user_id, email__iexact=identity["email"])
             if hasattr(user, "subscription") and not upgrading_agent:
                 return Response({"detail": "This account has already completed registration."}, status=409)
-            if not user.phone_number:
+            if not user.phone_number and phone_available:
                 user.phone_number = phone
         else:
-            user = User.objects.create_user(username=_unique_username(identity["email"].split("@")[0]), email=identity["email"], phone_number=phone)
+            user = User.objects.create_user(
+                username=_unique_username(identity["email"].split("@")[0]),
+                email=identity["email"],
+                phone_number=phone if phone_available else None,
+            )
             user.set_unusable_password()
         if identity.get("sub") and not str(identity["sub"]).startswith("user:"):
             user.google_sub = identity["sub"]
@@ -140,29 +151,30 @@ def complete_onboarding(request):
         user.profile_image_url = identity.get("picture", "")
         user.phone_verified = True
         user.save()
-        role_name = "Agent" if plan["account_type"] == "agent" else "Home seeker"
+        role_name = "Agent" if plan.audience == Bundle.Audience.AGENT else "Home seeker"
         role, _ = Role.objects.get_or_create(name=role_name, defaults={"description": f"SweetHomez {role_name.lower()} account"})
         user.roles.add(role)
-        if plan["account_type"] == "agent" and not upgrading_agent:
+        if plan.audience == Bundle.Audience.AGENT and not upgrading_agent:
             AgentProfile.objects.create(user=user, agency_name=str(request.data.get("agency_name", "")).strip(), phone_number=phone, whatsapp_number=phone, coverage_areas=str(request.data.get("coverage_areas", "")).strip())
         if upgrading_agent:
-            if plan["account_type"] != "agent":
+            if plan.audience != Bundle.Audience.AGENT:
                 return Response({"detail": "Choose an agent bundle to upgrade."}, status=400)
             AgentProfile.objects.update_or_create(user=user, defaults={"agency_name": str(request.data.get("agency_name", "")).strip(), "phone_number": phone, "whatsapp_number": phone, "coverage_areas": str(request.data.get("coverage_areas", "")).strip()})
             subscription = user.subscription
             subscription.account_type = "agent"
             subscription.plan_code = plan_code
-            subscription.plan_name = plan["name"]
-            subscription.amount = plan["amount"]
+            subscription.plan_name = plan.name
+            subscription.amount = plan.amount
             subscription.payment_phone = phone
             subscription.payment_reference = f"DUMMY-{secrets.token_hex(8).upper()}"
             subscription.status = Subscription.Status.ACTIVE
-            subscription.expires_at = timezone.now() + timedelta(days=30)
+            subscription.starts_at = timezone.now()
+            subscription.expires_at = timezone.now() + timedelta(days=plan.duration_days)
             subscription.save()
         else:
-            Subscription.objects.create(user=user, account_type=plan["account_type"], plan_code=plan_code, plan_name=plan["name"], amount=plan["amount"], payment_phone=phone, payment_reference=f"DUMMY-{secrets.token_hex(8).upper()}", expires_at=timezone.now() + timedelta(days=30))
+            Subscription.objects.create(user=user, account_type=plan.audience, plan_code=plan_code, plan_name=plan.name, amount=plan.amount, payment_phone=phone, payment_reference=f"DUMMY-{secrets.token_hex(8).upper()}", expires_at=timezone.now() + timedelta(days=plan.duration_days))
     data = _tokens_for(user)
-    data["payment"] = {"status": "completed", "provider": "dummy", "amount": plan["amount"], "plan": plan["name"]}
+    data["payment"] = {"status": "completed", "provider": "dummy", "amount": plan.amount, "plan": plan.name}
     return Response(data, status=201)
 
 
@@ -229,6 +241,165 @@ def verify_phone_code(request):
     return Response(_tokens_for(user))
 
 
+@api_view(["GET"])
+@permission_classes([permission_required("users.view_admin_dashboard")])
+def admin_dashboard(request):
+    """Return the compact, read-only overview used by the administrator dashboard."""
+    from assistant.models import SearchConversation
+    from houses.models import House
+
+    now = timezone.now()
+    week_ago = now - timedelta(days=7)
+    active_subscriptions = Subscription.objects.filter(
+        status=Subscription.Status.ACTIVE,
+        expires_at__gt=now,
+    )
+    recent_users = User.objects.prefetch_related("roles").order_by("-date_joined")[:5]
+    recent_houses = House.objects.select_related("agent").order_by("-created_at")[:5]
+    first_day = timezone.localdate() - timedelta(days=6)
+
+    def daily_totals(queryset, date_field, aggregate):
+        return {
+            row["day"]: row["total"] or 0
+            for row in queryset.filter(**{f"{date_field}__date__gte": first_day})
+            .annotate(day=TruncDate(date_field))
+            .values("day")
+            .annotate(total=aggregate)
+            .order_by("day")
+        }
+
+    daily_users = daily_totals(User.objects.all(), "date_joined", Count("id"))
+    daily_houses = daily_totals(House.objects.all(), "created_at", Count("id"))
+    daily_conversations = daily_totals(SearchConversation.objects.all(), "created_at", Count("id"))
+    daily_revenue = daily_totals(Subscription.objects.all(), "starts_at", Sum("amount"))
+    trends = []
+    for offset in range(7):
+        day = first_day + timedelta(days=offset)
+        trends.append({
+            "date": day,
+            "users": daily_users.get(day, 0),
+            "houses": daily_houses.get(day, 0),
+            "conversations": daily_conversations.get(day, 0),
+            "revenue": daily_revenue.get(day, 0),
+        })
+
+    return Response({
+        "stats": {
+            "total_users": User.objects.count(),
+            "active_users": User.objects.filter(is_active=True).count(),
+            "agents": AgentProfile.objects.count(),
+            "total_houses": House.objects.count(),
+            "available_houses": House.objects.filter(is_available=True).count(),
+            "conversations": SearchConversation.objects.count(),
+            "active_subscriptions": active_subscriptions.count(),
+            "subscription_revenue": active_subscriptions.aggregate(total=Sum("amount"))["total"] or 0,
+        },
+        "growth": {
+            "users_this_week": User.objects.filter(date_joined__gte=week_ago).count(),
+            "houses_this_week": House.objects.filter(created_at__gte=week_ago).count(),
+            "conversations_this_week": SearchConversation.objects.filter(created_at__gte=week_ago).count(),
+        },
+        "trends": trends,
+        "recent_users": [
+            {
+                "id": user.id,
+                "name": user.get_full_name() or user.username,
+                "email": user.email,
+                "roles": list(user.roles.values_list("name", flat=True)),
+                "is_active": user.is_active,
+                "date_joined": user.date_joined,
+            }
+            for user in recent_users
+        ],
+        "recent_houses": [
+            {
+                "id": house.id,
+                "title": house.title,
+                "location": house.location,
+                "listing_type": house.listing_type,
+                "price": house.price,
+                "is_available": house.is_available,
+                "agent": house.agent.get_full_name() or house.agent.username,
+                "created_at": house.created_at,
+            }
+            for house in recent_houses
+        ],
+        "generated_at": now,
+    })
+
+
+@api_view(["GET"])
+@permission_classes([AdminRecordPermission])
+def admin_records(request):
+    from assistant.models import SearchConversation
+    section, query = request.query_params.get("section", ""), request.query_params.get("search", "").strip()
+    try:
+        page_number, page_size = max(1, int(request.query_params.get("page", 1))), min(100, max(10, int(request.query_params.get("page_size", 20))))
+    except ValueError:
+        page_number, page_size = 1, 20
+    if section == "chat-histories":
+        records = SearchConversation.objects.select_related("user").annotate(message_count=Count("messages")).order_by("-updated_at")
+        if query: records = records.filter(Q(user__email__icontains=query)|Q(user__username__icontains=query))
+        def serialize(item): return {"id":str(item.id),"user":item.user.get_full_name() or item.user.username if item.user else "Guest","email":item.user.email if item.user else "","purpose":item.purpose,"language":item.language,"message_count":item.message_count,"created_at":item.created_at,"updated_at":item.updated_at}
+    elif section == "subscriptions":
+        records = Subscription.objects.select_related("user").order_by("-starts_at")
+        if query: records = records.filter(Q(user__email__icontains=query)|Q(user__username__icontains=query)|Q(plan_name__icontains=query))
+        def serialize(item): return {"id":item.id,"user":item.user.get_full_name() or item.user.username,"email":item.user.email,"plan_name":item.plan_name,"account_type":item.account_type,"amount":item.amount,"status":item.status,"starts_at":item.starts_at,"expires_at":item.expires_at}
+    elif section == "login-activities":
+        records = LoginActivity.objects.select_related("user").order_by("-created_at")
+        if query: records = records.filter(Q(identifier__icontains=query)|Q(user__email__icontains=query)|Q(ip_address__icontains=query))
+        def serialize(item): return {"id":item.id,"user":item.user.get_full_name() or item.user.username if item.user else item.identifier or "Unknown","identifier":item.identifier,"ip_address":item.ip_address,"user_agent":item.user_agent,"successful":item.successful,"created_at":item.created_at}
+    elif section == "audit-trails":
+        records = AuditTrail.objects.select_related("actor").order_by("-created_at")
+        if query: records = records.filter(Q(actor__email__icontains=query)|Q(action__icontains=query)|Q(target_label__icontains=query))
+        def serialize(item): return {"id":item.id,"actor":item.actor.get_full_name() or item.actor.username if item.actor else "System","actor_email":item.actor.email if item.actor else "","action":item.action,"target_type":item.target_type,"target_label":item.target_label,"details":item.details,"ip_address":item.ip_address,"created_at":item.created_at}
+    else:
+        return Response({"detail":"Choose a valid admin record section."}, status=400)
+    paginator, page = Paginator(records, page_size), None
+    page = paginator.get_page(page_number)
+    if section == "subscriptions":
+        subscriptions = Subscription.objects.all()
+        totals = subscriptions.aggregate(total=Sum("amount"), average=Avg("amount"))
+        monthly = subscriptions.annotate(month=TruncMonth("starts_at")).values("month").annotate(
+            total=Sum("amount"), count=Count("id")
+        ).order_by("month")
+        plans = subscriptions.values("plan_name").annotate(
+            total=Sum("amount"), count=Count("id")
+        ).order_by("-total", "plan_name")
+        summary = {
+            "total_amount": totals["total"] or 0,
+            "average_amount": round(totals["average"] or 0),
+            "active_count": subscriptions.filter(status=Subscription.Status.ACTIVE).count(),
+            "expired_count": subscriptions.filter(status=Subscription.Status.EXPIRED).count(),
+            "agent_count": subscriptions.filter(account_type="agent").count(),
+            "home_seeker_count": subscriptions.exclude(account_type="agent").count(),
+            "monthly": list(monthly),
+            "plans": list(plans),
+        }
+    else:
+        summary = {}
+    return Response({"count":paginator.count,"next":page.has_next(),"previous":page.has_previous(),"summary":summary,"results":[serialize(item) for item in page.object_list]})
+
+
+@api_view(["GET"])
+@permission_classes([permission_required("assistant.view_searchconversation")])
+def admin_conversation_detail(request, conversation_id):
+    from assistant.models import SearchConversation
+    conversation = SearchConversation.objects.select_related("user").prefetch_related("messages").filter(pk=conversation_id).first()
+    if not conversation:
+        return Response({"detail":"Conversation not found."}, status=404)
+    return Response({
+        "id": str(conversation.id),
+        "user": conversation.user.get_full_name() or conversation.user.username if conversation.user else "Guest",
+        "email": conversation.user.email if conversation.user else "",
+        "language": conversation.language,
+        "purpose": conversation.purpose,
+        "created_at": conversation.created_at,
+        "updated_at": conversation.updated_at,
+        "messages": [{"id":message.id,"role":message.role,"content":message.content,"created_at":message.created_at} for message in conversation.messages.all()],
+    })
+
+
 users_crud_schema = extend_schema_view(
     list=extend_schema(tags=["Users"]),
     retrieve=extend_schema(tags=["Users"]),
@@ -274,6 +445,19 @@ class CurrentAgentProfileView(generics.RetrieveUpdateAPIView):
 class LoginView(TokenObtainPairView):
     permission_classes = [permissions.AllowAny]
     serializer_class = EmailOrUsernameTokenObtainPairSerializer
+
+    def post(self, request, *args, **kwargs):
+        identifier = str(request.data.get("username", ""))[:254]
+        forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
+        details = {"identifier":identifier,"ip_address":forwarded or request.META.get("REMOTE_ADDR") or None,"user_agent":request.META.get("HTTP_USER_AGENT", "")[:1000]}
+        try:
+            response = super().post(request, *args, **kwargs)
+        except Exception:
+            LoginActivity.objects.create(**details, successful=False)
+            raise
+        user_data = response.data.get("user", {}) if isinstance(response.data, dict) else {}
+        LoginActivity.objects.create(**details, user_id=user_data.get("id"), successful=response.status_code < 400)
+        return response
 
 
 @extend_schema_view(post=extend_schema(tags=["Users"]))
@@ -327,15 +511,53 @@ class ChangePasswordView(generics.GenericAPIView):
         return Response({"detail": "Password changed successfully."})
 
 
+class AdminUserPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
 @users_crud_schema
 class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.prefetch_related("groups", "user_permissions").order_by("id")
+    queryset = User.objects.select_related("subscription").prefetch_related("groups", "user_permissions", "roles").order_by("-date_joined")
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [ModelActionPermissions]
+    action_permissions = {
+        "activate": ("users.change_user",),
+        "reset_password": ("users.reset_user_password",),
+    }
+    pagination_class = AdminUserPagination
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        query = self.request.query_params.get("search", "").strip()
+        if query:
+            queryset = queryset.filter(
+                Q(username__icontains=query)
+                | Q(email__icontains=query)
+                | Q(first_name__icontains=query)
+                | Q(last_name__icontains=query)
+                | Q(phone_number__icontains=query)
+            )
+        status_filter = self.request.query_params.get("status")
+        if status_filter == "active":
+            queryset = queryset.filter(is_active=True)
+        elif status_filter == "inactive":
+            queryset = queryset.filter(is_active=False)
+        ordering = self.request.query_params.get("ordering", "-date_joined")
+        allowed_ordering = {"username", "email", "date_joined", "is_active", "first_name", "last_name"}
+        ordering_field = ordering.lstrip("-")
+        if ordering_field in allowed_ordering:
+            queryset = queryset.order_by(ordering)
+        return queryset
 
     def perform_destroy(self, instance):
+        if instance.pk == self.request.user.pk:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"detail": "You cannot deactivate your own administrator account."})
         instance.is_active = False
         instance.save(update_fields=["is_active"])
+        _audit(self.request, "user.deactivated", instance)
 
     @extend_schema(tags=["Users"])
     @action(detail=True, methods=["post"])
@@ -343,18 +565,52 @@ class UserViewSet(viewsets.ModelViewSet):
         user = self.get_object()
         user.is_active = True
         user.save(update_fields=["is_active"])
+        _audit(request, "user.activated", user)
         return Response(self.get_serializer(user).data)
+
+    @extend_schema(tags=["Users"])
+    @action(detail=True, methods=["post"], url_path="reset-password")
+    def reset_password(self, request, pk=None):
+        user = self.get_object()
+        if user.pk == request.user.pk:
+            return Response(
+                {"detail": "Use the change-password form to update your own administrator password."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        temporary_password = f"Shz@{secrets.token_urlsafe(9)}9"
+        user.set_password(temporary_password)
+        user.save(update_fields=["password"])
+        _audit(request, "user.password_regenerated", user)
+        return Response({
+            "detail": "Temporary password generated successfully.",
+            "temporary_password": temporary_password,
+        })
 
 
 @users_crud_schema
 class RoleViewSet(viewsets.ModelViewSet):
     queryset = Role.objects.prefetch_related("permissions").order_by("name")
     serializer_class = RoleSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [ModelActionPermissions]
 
 
 @users_read_schema
-class PermissionViewSet(viewsets.ReadOnlyModelViewSet):
+class PermissionViewSet(viewsets.ModelViewSet):
     queryset = Permission.objects.select_related("content_type").order_by("content_type__app_label", "codename")
     serializer_class = PermissionSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [ModelActionPermissions]
+
+
+class BundleViewSet(viewsets.ModelViewSet):
+    serializer_class = BundleSerializer
+
+    def get_queryset(self):
+        queryset = Bundle.objects.all()
+        if not self.request.user.has_perm("users.view_bundle"):
+            queryset = queryset.filter(is_active=True)
+        audience = self.request.query_params.get("audience")
+        return queryset.filter(audience=audience) if audience else queryset
+
+    def get_permissions(self):
+        permission_class = permissions.AllowAny if self.request.method in permissions.SAFE_METHODS else ModelActionPermissions
+        return [permission_class()]

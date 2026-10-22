@@ -7,6 +7,10 @@ from houses.models import House
 
 
 class SearchConversation(models.Model):
+    class Purpose(models.TextChoices):
+        SEARCH = "search", "Property search"
+        LISTING = "listing", "Agent listing"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -16,6 +20,9 @@ class SearchConversation(models.Model):
         blank=True,
     )
     language = models.CharField(max_length=5, default="en")
+    purpose = models.CharField(max_length=12, choices=Purpose.choices, default=Purpose.SEARCH)
+    listing_draft = models.JSONField(default=dict, blank=True)
+    listing_ready = models.BooleanField(default=False)
     consecutive_off_topic_count = models.PositiveSmallIntegerField(default=0)
     # Structured memory of the property cards most recently shown to the user.
     last_recommended_house_ids = models.JSONField(default=list, blank=True)

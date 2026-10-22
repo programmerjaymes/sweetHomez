@@ -130,6 +130,17 @@ class AssistantApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(str(response.data["conversation_id"]), str(conversation.pk))
 
+    def test_agent_can_clear_only_their_own_conversation_history(self):
+        own = SearchConversation.objects.create(user=self.agent)
+        another_user = User.objects.create_user("history-owner", "history@example.com", "pass")
+        other = SearchConversation.objects.create(user=another_user)
+        self.client.force_authenticate(self.agent)
+        response = self.client.delete("/api/assistant/conversations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["deleted_count"], 1)
+        self.assertFalse(SearchConversation.objects.filter(pk=own.pk).exists())
+        self.assertTrue(SearchConversation.objects.filter(pk=other.pk).exists())
+
     @patch("assistant.views.extract_requirements")
     def test_greeting_asks_for_requirements_without_returning_every_house(self, extract):
         extract.return_value = ExtractedRequirements(
@@ -145,6 +156,31 @@ class AssistantApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["matches"], [])
         self.assertEqual(response.data["message"], "Hello! How can I help you find a home today?")
+
+    @patch("assistant.views.extract_requirements")
+    def test_authenticated_agent_greeting_offers_agent_actions(self, extract):
+        self.client.force_authenticate(self.agent)
+        extract.return_value = ExtractedRequirements(
+            intent="casual_conversation", assistant_reply="Habari!", language="sw"
+        )
+
+        response = self.client.post("/api/assistant/chat/", {"message": "habari sweetie"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("kupost nyumba mpya", response.data["message"])
+        self.assertIn("swali lolote kuhusu kazi yako ya uwakala", response.data["message"])
+
+    @patch("assistant.views.extract_requirements")
+    def test_agent_can_ask_to_see_their_own_posted_houses(self, extract):
+        self.client.force_authenticate(self.agent)
+        response = self.client.post(
+            "/api/assistant/chat/", {"message": "Nionyeshe nyumba nilizopost"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["matches"]), 2)
+        self.assertTrue(all(item["agent"]["id"] == self.agent.id for item in response.data["matches"]))
+        self.assertIn("nyumba zako zilizopo", response.data["message"])
+        extract.assert_not_called()
 
     @patch("assistant.views.extract_requirements")
     def test_property_question_gets_conversational_answer_without_search(self, extract):

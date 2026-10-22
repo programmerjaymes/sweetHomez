@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from lookups.models import District, Locality, Region, Ward
 
-from .models import AgentProfile, Role, User
+from .models import AgentProfile, Bundle, Role, User
 
 
 class PermissionSerializer(serializers.ModelSerializer):
@@ -15,7 +15,7 @@ class PermissionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Permission
-        fields = ["id", "name", "codename", "app_label"]
+        fields = ["id", "name", "codename", "content_type", "app_label"]
 
 
 class RoleSerializer(serializers.ModelSerializer):
@@ -26,23 +26,41 @@ class RoleSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "description", "permissions"]
 
 
+class BundleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Bundle
+        fields = ["id", "code", "name", "audience", "description", "amount", "duration_days", "advantages", "is_active", "is_default", "display_order", "prompts_per_chat", "prompts_per_day", "prompts_per_week", "total_prompts", "max_houses", "video_upload_allowed", "max_photos_per_house", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_advantages(self, value):
+        if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+            raise serializers.ValidationError("Advantages must be a list of non-empty text values.")
+        return [item.strip() for item in value]
+
+
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, min_length=8)
     roles = serializers.PrimaryKeyRelatedField(queryset=Role.objects.all(), many=True, required=False)
     permissions = serializers.PrimaryKeyRelatedField(source="user_permissions", queryset=Permission.objects.all(), many=True, required=False)
     effective_permissions = serializers.SerializerMethodField()
+    role_names = serializers.SerializerMethodField()
     registration_complete = serializers.SerializerMethodField()
     account_type = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "phone_number", "profile_image_url", "phone_verified", "registration_complete", "account_type", "password", "first_name", "last_name", "is_active", "is_staff", "roles", "permissions", "effective_permissions", "date_joined"]
+        fields = ["id", "username", "email", "phone_number", "profile_image_url", "phone_verified", "registration_complete", "account_type", "password", "first_name", "last_name", "is_active", "is_staff", "is_superuser", "roles", "role_names", "permissions", "effective_permissions", "date_joined"]
         read_only_fields = ["id", "phone_verified", "effective_permissions", "date_joined"]
 
     def get_effective_permissions(self, obj) -> list[str]:
         return sorted(obj.get_all_permissions())
 
+    def get_role_names(self, obj) -> list[str]:
+        return list(obj.roles.order_by("name").values_list("name", flat=True))
+
     def get_registration_complete(self, obj) -> bool:
+        if obj.is_staff or obj.is_superuser:
+            return True
         subscription = getattr(obj, "subscription", None)
         if not subscription:
             return False
@@ -55,8 +73,8 @@ class UserSerializer(serializers.ModelSerializer):
     def get_fields(self):
         fields = super().get_fields()
         request = self.context.get("request")
-        if not request or not request.user.is_staff:
-            for name in ("is_active", "is_staff", "roles", "permissions"):
+        if not request or not request.user.has_perm("users.change_user"):
+            for name in ("is_active", "is_staff", "is_superuser", "roles", "permissions"):
                 fields[name].read_only = True
         return fields
 
@@ -114,7 +132,16 @@ class RegisterSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        return User.objects.create_user(**validated_data)
+        user = User.objects.create_user(**validated_data)
+        free_bundle = Bundle.objects.filter(is_default=True, audience=Bundle.Audience.HOME_SEEKER, is_active=True).order_by("display_order", "id").first()
+        if free_bundle:
+            role, _ = Role.objects.get_or_create(name="Home seeker", defaults={"description": "SweetHomez home seeker account"})
+            user.roles.add(role)
+            from datetime import timedelta
+            from secrets import token_hex
+            from .models import Subscription
+            Subscription.objects.create(user=user, account_type=free_bundle.audience, plan_code=free_bundle.code, plan_name=free_bundle.name, amount=0, payment_phone=user.phone_number or "FREE", payment_reference=f"FREE-{token_hex(8).upper()}", expires_at=timezone.now()+timedelta(days=free_bundle.duration_days))
+        return user
 
 
 class AgentProfileSerializer(serializers.ModelSerializer):
