@@ -43,6 +43,31 @@ def _tokens_for(user):
     return {"refresh": str(refresh), "access": str(refresh.access_token), "user": UserSerializer(user).data}
 
 
+def _log_successful_login(user, method, request=None):
+    roles = {
+        "names": list(user.roles.order_by("name").values_list("name", flat=True)),
+        "is_staff": user.is_staff,
+        "is_superuser": user.is_superuser,
+    }
+    effective_permissions = sorted(user.get_all_permissions())
+    permission_data = {
+        "count": len(effective_permissions),
+        "items": effective_permissions,
+    }
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() if request else ""
+    ip_address = forwarded or (request.META.get("REMOTE_ADDR") if request else None)
+    logger.info(
+        "User logged in successfully user_id=%s username=%s email=%s method=%s ip=%s roles=%s permissions=%s",
+        user.pk,
+        user.username,
+        user.email,
+        method,
+        ip_address,
+        roles,
+        permission_data,
+    )
+
+
 def _unique_username(seed):
     base = "".join(char for char in seed.lower() if char.isalnum() or char in "._-")[:120] or "user"
     candidate, suffix = base, 1
@@ -103,6 +128,7 @@ def google_login(request):
     user.last_name = claims.get("family_name", user.last_name)
     user.profile_image_url = claims.get("picture", user.profile_image_url)
     user.save()
+    _log_successful_login(user, "google", request)
     return Response(_tokens_for(user))
 
 
@@ -173,6 +199,7 @@ def complete_onboarding(request):
             subscription.save()
         else:
             Subscription.objects.create(user=user, account_type=plan.audience, plan_code=plan_code, plan_name=plan.name, amount=plan.amount, payment_phone=phone, payment_reference=f"DUMMY-{secrets.token_hex(8).upper()}", expires_at=timezone.now() + timedelta(days=plan.duration_days))
+    _log_successful_login(user, "onboarding", request)
     data = _tokens_for(user)
     data["payment"] = {"status": "completed", "provider": "dummy", "amount": plan.amount, "plan": plan.name}
     return Response(data, status=201)
@@ -238,6 +265,7 @@ def verify_phone_code(request):
     user.phone_verified = True
     user.save(update_fields=["phone_verified"])
     record.delete()
+    _log_successful_login(user, "phone", request)
     return Response(_tokens_for(user))
 
 
@@ -457,6 +485,10 @@ class LoginView(TokenObtainPairView):
             raise
         user_data = response.data.get("user", {}) if isinstance(response.data, dict) else {}
         LoginActivity.objects.create(**details, user_id=user_data.get("id"), successful=response.status_code < 400)
+        if response.status_code < 400 and user_data.get("id"):
+            user = User.objects.prefetch_related("roles", "roles__permissions").filter(pk=user_data["id"]).first()
+            if user:
+                _log_successful_login(user, "password", request)
         return response
 
 
