@@ -8,15 +8,24 @@ from .models import Role, User
 ADMIN_ROLE_NAME = "Admin"
 
 
-def assign_administrator_role(user):
-    """Give a superuser the application Administrator role and every permission."""
-    if not user.is_superuser:
-        return
+def synchronize_administrators():
+    """Synchronize the full-access role and return useful verification counts."""
     role, _ = Role.objects.get_or_create(
         name=ADMIN_ROLE_NAME,
         defaults={"description": "SweetHomez administrator with full platform access."},
     )
     role.permissions.set(Permission.objects.all())
+    superusers = User.objects.filter(is_superuser=True)
+    for user in superusers.iterator():
+        user.roles.add(role)
+    return role, superusers.count(), Permission.objects.count()
+
+
+def assign_administrator_role(user):
+    """Give a superuser the application Administrator role and every permission."""
+    if not user.is_superuser:
+        return
+    role, _, _ = synchronize_administrators()
     user.roles.add(role)
 
 
@@ -28,10 +37,4 @@ def assign_role_to_new_superuser(sender, instance, **kwargs):
 @receiver(post_migrate)
 def synchronize_administrator_role(sender, **kwargs):
     """Include newly-created model permissions and repair existing superusers."""
-    role, _ = Role.objects.get_or_create(
-        name=ADMIN_ROLE_NAME,
-        defaults={"description": "SweetHomez administrator with full platform access."},
-    )
-    role.permissions.set(Permission.objects.all())
-    for user in User.objects.filter(is_superuser=True).iterator():
-        user.roles.add(role)
+    synchronize_administrators()

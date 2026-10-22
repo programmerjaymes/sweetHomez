@@ -593,6 +593,24 @@ class RoleViewSet(viewsets.ModelViewSet):
     serializer_class = RoleSerializer
     permission_classes = [ModelActionPermissions]
 
+    def _preserve_admin_permissions(self, role):
+        if role.name.casefold() == "admin":
+            role.permissions.set(Permission.objects.all())
+
+    def perform_create(self, serializer):
+        role = serializer.save()
+        self._preserve_admin_permissions(role)
+
+    def perform_update(self, serializer):
+        role = serializer.save()
+        self._preserve_admin_permissions(role)
+
+    def perform_destroy(self, instance):
+        if instance.name.casefold() == "admin":
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"detail": "The system Admin role cannot be deleted."})
+        instance.delete()
+
 
 @users_read_schema
 class PermissionViewSet(viewsets.ModelViewSet):
