@@ -425,9 +425,13 @@ SIMPLE_JWT = {
 
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 
-    "ROTATE_REFRESH_TOKENS": True,
+    # Admin screens issue several API requests in parallel. Rotating and
+    # blacklisting a refresh token lets the first request invalidate the token
+    # while a second request is still refreshing it, producing a false 401.
+    # A refresh token remains revocable on logout and expires after seven days.
+    "ROTATE_REFRESH_TOKENS": False,
 
-    "BLACKLIST_AFTER_ROTATION": True,
+    "BLACKLIST_AFTER_ROTATION": False,
 }
 
 
