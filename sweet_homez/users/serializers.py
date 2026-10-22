@@ -56,7 +56,17 @@ class UserSerializer(serializers.ModelSerializer):
         return sorted(obj.get_all_permissions())
 
     def get_role_names(self, obj) -> list[str]:
-        return list(obj.roles.order_by("name").values_list("name", flat=True))
+        role_names = list(obj.roles.order_by("name").values_list("name", flat=True))
+        if role_names:
+            return role_names
+        # Django's createsuperuser command sets the built-in privilege flags but
+        # does not create an application Role record. Expose that backend role so
+        # every client uses the API as its single source of truth.
+        if obj.is_superuser:
+            return ["Super Administrator"]
+        if obj.is_staff:
+            return ["Administrator"]
+        return []
 
     def get_registration_complete(self, obj) -> bool:
         if obj.is_staff or obj.is_superuser:

@@ -54,6 +54,13 @@ class AuthenticationApiTests(APITestCase):
         self.assertTrue(response.data["is_superuser"])
         self.assertEqual(response.data["role_names"], ["Platform Administrator"])
 
+    def test_superuser_without_custom_role_is_reported_as_administrator(self):
+        admin = User.objects.create_superuser("programmer", "programmer@example.com", self.password)
+        self.client.force_authenticate(admin)
+        response = self.client.get("/api/auth/me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["role_names"], ["Super Administrator"])
+
     @override_settings(DEBUG=True, TWILIO_ACCOUNT_SID="", TWILIO_AUTH_TOKEN="", TWILIO_FROM_NUMBER="")
     def test_phone_code_can_register_and_login_user_in_development(self):
         requested = self.client.post("/api/auth/phone/request/", {"phone_number": "+255712345678"})
